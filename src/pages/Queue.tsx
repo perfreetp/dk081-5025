@@ -848,11 +848,10 @@ export default function Queue() {
       dateRange: localDateRange
         ? [localDateRange[0].format('YYYY-MM-DD'), localDateRange[1].format('YYYY-MM-DD')]
         : null,
+      priceRange: localPriceRange,
     });
-    if (localPriceRange) {
-      setFilters({ categories: filters.categories });
-    }
-    message.success('筛选条件已应用');
+    const { pagination } = useReviewStore.getState();
+    message.success(`筛选条件已应用，共找到 ${pagination.total} 条结果`);
   };
 
   const handleResetFilters = () => {
@@ -870,17 +869,19 @@ export default function Queue() {
       message.warning('请先选择要操作的商品');
       return;
     }
+    const ids = selectedRowKeys.map((k) => String(k));
+    const count = ids.length;
     const label = action === 'approved' ? '通过' : '打回';
     modal.confirm({
       title: `确认批量${label}`,
-      content: `将对已选中的 ${selectedRowKeys.length} 个商品执行「${label}」操作，是否继续？`,
+      content: `将对已选中的 ${count} 个商品执行「${label}」操作，是否继续？`,
       okText: `确认${label}`,
       cancelText: '取消',
       okButtonProps: { danger: action !== 'approved' },
       onOk: () => {
-        batchReview(selectedRowKeys.map((k) => String(k)), action, `批量${label}操作`);
+        batchReview(ids, action, `批量${label}操作`);
         setSelectedRowKeys([]);
-        message.success(`已成功${label} ${selectedRowKeys.length} 个商品`);
+        message.success(`已成功${label} ${count} 个商品`);
       },
     });
   };

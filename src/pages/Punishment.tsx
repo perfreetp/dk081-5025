@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -27,6 +27,7 @@ import {
   Package,
   AlertTriangle,
 } from 'lucide-react';
+import { message } from 'antd';
 import { StatusTag } from '@/components/StatusTag';
 import { HighlightText } from '@/components/HighlightText';
 import { ImageMarker } from '@/components/ImageMarker';
@@ -207,10 +208,10 @@ export default function Punishment() {
     applyAppealFilters();
   }, [applyPunishmentFilters, applyAppealFilters]);
 
-  const pagedPunishments = useMemo(() => getPagedPunishments(), [getPagedPunishments]);
-  const pagedAppeals = useMemo(() => getPagedAppeals(), [getPagedAppeals]);
-  const punishmentStats = useMemo(() => getPunishmentStats(), [getPunishmentStats]);
-  const appealStats = useMemo(() => getAppealStats(), [getAppealStats]);
+  const pagedPunishments = getPagedPunishments();
+  const pagedAppeals = getPagedAppeals();
+  const punishmentStats = getPunishmentStats();
+  const appealStats = getAppealStats();
 
   const currentPunishmentDetail = punishmentDetailModal.id
     ? punishmentRecords.find((p) => p.id === punishmentDetailModal.id)
@@ -244,6 +245,7 @@ export default function Punishment() {
   const handleRevoke = () => {
     if (revokeModal.id) {
       revokePunishment(revokeModal.id, revokeReason);
+      message.success('处罚已撤销');
     }
     setRevokeModal({ visible: false, id: null });
     setRevokeReason('');
@@ -252,6 +254,7 @@ export default function Punishment() {
   const handleExtend = () => {
     if (extendModal.id) {
       extendPunishment(extendModal.id, extendDays);
+      message.success(`处罚已延期 ${extendDays} 天`);
     }
     setExtendModal({ visible: false, id: null });
     setExtendDays(7);
@@ -264,6 +267,7 @@ export default function Punishment() {
         appealReviewModal.action === 'approve',
         reviewComment || (appealReviewModal.action === 'approve' ? '申诉成立，已撤销处罚' : '申诉证据不足，维持原处罚'),
       );
+      message.success(appealReviewModal.action === 'approve' ? '申诉已通过，处罚已撤销' : '申诉已驳回');
     }
     setAppealReviewModal({ visible: false, id: null, action: null });
     setReviewComment('');

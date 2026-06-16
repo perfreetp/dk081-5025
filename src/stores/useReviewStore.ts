@@ -1,4 +1,8 @@
 import { create } from 'zustand';
+import dayjs from 'dayjs';
+import isBetween from 'dayjs/plugin/isBetween';
+
+dayjs.extend(isBetween);
 import type { PendingProduct, RiskLevel, RiskType, ReviewStatus } from '../mock';
 import { pendingProducts as mockProducts } from '../mock';
 
@@ -10,6 +14,7 @@ export interface ReviewFilters {
   sellerViolationMax: number | null;
   dateRange: [string, string] | null;
   keyword: string;
+  priceRange: [number, number] | null;
 }
 
 export interface ReviewPagination {
@@ -66,7 +71,8 @@ const defaultFilters: ReviewFilters = {
   sellerCreditMin: null,
   sellerViolationMax: null,
   dateRange: null,
-  keyword: ''
+  keyword: '',
+  priceRange: null
 };
 
 const defaultPagination: ReviewPagination = {
@@ -105,6 +111,21 @@ function filterProducts(products: PendingProduct[], filters: ReviewFilters): Pen
       const inSeller = product.seller.name.toLowerCase().includes(kw);
       const inHighlight = product.highlightWords.some(hw => hw.word.toLowerCase().includes(kw));
       if (!inTitle && !inDesc && !inSeller && !inHighlight) return false;
+    }
+
+    if (filters.priceRange !== null) {
+      const [minPrice, maxPrice] = filters.priceRange;
+      if (product.price < minPrice || product.price > maxPrice) {
+        return false;
+      }
+    }
+
+    if (filters.dateRange !== null) {
+      const [startDate, endDate] = filters.dateRange;
+      const publishTime = dayjs(product.publishTime);
+      if (!publishTime.isBetween(startDate, endDate, 'day', '[]')) {
+        return false;
+      }
     }
 
     if (product.reviewStatus !== 'pending') {

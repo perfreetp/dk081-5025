@@ -224,6 +224,7 @@ export default function Inspection() {
   const [frequency, setFrequency] = useState<number>(120);
   const [tasks, setTasks] = useState<ScheduledTask[]>(scheduledTasks);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null);
   const [isInspecting, setIsInspecting] = useState(false);
   const [inspectionProgress, setInspectionProgress] = useState(0);
   const [records] = useState<InspectionRecord[]>(inspectionRecords);
@@ -496,18 +497,32 @@ export default function Inspection() {
     });
   };
 
+  const getTimeSlotValue = (timeSlotStr: string): string => {
+    if (timeSlotStr.includes('工作日')) return 'workday';
+    if (timeSlotStr.includes('周末')) return 'weekend';
+    if (timeSlotStr.includes('每日')) return 'daily';
+    return 'custom';
+  };
+
+  const getFrequencyValue = (frequencyStr: string): number => {
+    const opt = FREQUENCY_OPTIONS.find((o) => o.label === frequencyStr);
+    return opt ? opt.value : 120;
+  };
+
   const handleEditTask = (record: ScheduledTask) => {
+    setEditingTask(record);
     form.setFieldsValue({
       name: record.name,
-      timeSlot: 'workday',
+      timeSlot: getTimeSlotValue(record.timeSlot),
       categories: record.categories,
-      frequency: 120,
+      frequency: getFrequencyValue(record.frequency),
       threshold: record.threshold,
     });
     setIsModalOpen(true);
   };
 
   const handleCreateTask = () => {
+    setEditingTask(null);
     form.resetFields();
     form.setFieldsValue({
       timeSlot: 'workday',
@@ -519,21 +534,44 @@ export default function Inspection() {
 
   const handleFormSubmit = () => {
     form.validateFields().then((values) => {
-      const newTask: ScheduledTask = {
-        key: String(tasks.length + 1),
-        id: `TASK-${String(tasks.length + 1).padStart(3, '0')}`,
-        name: values.name,
-        timeSlot: TIME_SLOT_OPTIONS.find((t) => t.value === values.timeSlot)?.label || '自定义',
-        categories: values.categories || ['全部类目'],
-        frequency: FREQUENCY_OPTIONS.find((f) => f.value === values.frequency)?.label || '每2小时',
-        status: 'running',
-        lastRun: '-',
-        nextRun: dayjs().add(values.frequency, 'minute').format('YYYY-MM-DD HH:mm:ss'),
-        threshold: values.threshold,
-      };
-      setTasks((prev) => [newTask, ...prev]);
-      setIsModalOpen(false);
-      message.success('巡检任务创建成功');
+      const timeSlotLabel = TIME_SLOT_OPTIONS.find((t) => t.value === values.timeSlot)?.label || '自定义';
+      const frequencyLabel = FREQUENCY_OPTIONS.find((f) => f.value === values.frequency)?.label || '每2小时';
+
+      if (editingTask) {
+        setTasks((prev) =>
+          prev.map((t) => {
+            if (t.key === editingTask.key) {
+              return {
+                ...t,
+                name: values.name,
+                timeSlot: timeSlotLabel,
+                categories: values.categories || ['全部类目'],
+                frequency: frequencyLabel,
+                threshold: values.threshold,
+              };
+            }
+            return t;
+          })
+        );
+        setIsModalOpen(false);
+        message.success('任务已更新');
+      } else {
+        const newTask: ScheduledTask = {
+          key: String(tasks.length + 1),
+          id: `TASK-${String(tasks.length + 1).padStart(3, '0')}`,
+          name: values.name,
+          timeSlot: timeSlotLabel,
+          categories: values.categories || ['全部类目'],
+          frequency: frequencyLabel,
+          status: 'running',
+          lastRun: '-',
+          nextRun: dayjs().add(values.frequency, 'minute').format('YYYY-MM-DD HH:mm:ss'),
+          threshold: values.threshold,
+        };
+        setTasks((prev) => [newTask, ...prev]);
+        setIsModalOpen(false);
+        message.success('任务创建成功');
+      }
     });
   };
 
@@ -887,13 +925,13 @@ export default function Inspection() {
         title={
           <span className="flex items-center gap-2 text-base font-semibold">
             <Settings className="w-5 h-5 text-info-600" />
-            {form.getFieldValue('name') ? '编辑巡检任务' : '新增巡检任务'}
+            {editingTask ? '编辑巡检任务' : '新增巡检任务'}
           </span>
         }
         open={isModalOpen}
         onOk={handleFormSubmit}
         onCancel={() => setIsModalOpen(false)}
-        okText="保存任务"
+        okText={editingTask ? '保存修改' : '创建任务'}
         cancelText="取消"
         width={640}
         destroyOnClose
