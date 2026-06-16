@@ -54,6 +54,16 @@ export interface RiskWord {
   operator: string;
 }
 
+export interface OperationLog {
+  id: string;
+  action: 'create' | 'revoke' | 'extend' | 'appeal_submit' | 'appeal_approve' | 'appeal_reject';
+  operator: string;
+  operatorRole?: string;
+  time: string;
+  comment?: string;
+  extra?: Record<string, any>;
+}
+
 export interface PunishmentRecord {
   id: string;
   productId: string;
@@ -69,6 +79,7 @@ export interface PunishmentRecord {
   effectiveDays: number;
   status: 'active' | 'expired' | 'revoked';
   appealAvailable: boolean;
+  operationLogs: OperationLog[];
 }
 
 export interface AppealRecord {
@@ -352,8 +363,34 @@ export const punishmentRecords: PunishmentRecord[] = Array.from({ length: 20 }, 
   else if (statusRandom < 0.9) status = 'expired';
   else status = 'revoked';
 
+  const recordOperator = randomPick(operatorNames);
+  const recordCreateTime = generateDate(randomInt(0, 30));
+  const recordId = generateId('PUN');
+
+  const operationLogs: OperationLog[] = [
+    {
+      id: generateId('LOG'),
+      action: 'create',
+      operator: recordOperator,
+      operatorRole: '审核员',
+      time: recordCreateTime,
+      comment: `创建处罚记录，执行${type === 'warning' ? '警告' : type === 'delist' ? '下架商品' : type === 'restriction' ? '限制发布' : type === 'ban_account' ? '封禁账号' : '罚款'}操作`
+    }
+  ];
+
+  if (status === 'revoked') {
+    operationLogs.push({
+      id: generateId('LOG'),
+      action: 'revoke',
+      operator: randomPick(operatorNames),
+      operatorRole: '审核员',
+      time: generateDate(randomInt(0, 10)),
+      comment: '经复核后撤销处罚'
+    });
+  }
+
   return {
-    id: generateId('PUN'),
+    id: recordId,
     productId: generateId('PDT'),
     productTitle: productTitles[index % productTitles.length],
     productImage: `https://picsum.photos/seed/punish${index}/200/200`,
@@ -364,11 +401,12 @@ export const punishmentRecords: PunishmentRecord[] = Array.from({ length: 20 }, 
     riskTypes: (['prohibited_words', 'sensitive_image', 'price_anomaly', 'category_mismatch', 'suspicious_seller', 'contact_info', 'copyright', 'weapon_drug'] as RiskType[])
       .sort(() => Math.random() - 0.5)
       .slice(0, randomInt(1, 3)),
-    operator: randomPick(operatorNames),
-    createTime: generateDate(randomInt(0, 30)),
+    operator: recordOperator,
+    createTime: recordCreateTime,
     effectiveDays: type === 'ban_account' ? -1 : type === 'warning' ? randomInt(3, 7) : randomInt(7, 90),
     status,
-    appealAvailable: status === 'active' && Math.random() > 0.4
+    appealAvailable: status === 'active' && Math.random() > 0.4,
+    operationLogs
   };
 });
 

@@ -32,7 +32,7 @@ import { StatusTag } from '@/components/StatusTag';
 import { HighlightText } from '@/components/HighlightText';
 import { ImageMarker } from '@/components/ImageMarker';
 import { usePunishmentStore } from '@/stores/usePunishmentStore';
-import type { PunishmentType, AppealStatus, RiskType } from '@/mock';
+import type { PunishmentType, AppealStatus, RiskType, OperationLog } from '@/mock';
 import { cn } from '@/lib/utils';
 
 const PUNISHMENT_TYPE_OPTIONS: { value: PunishmentType; label: string }[] = [
@@ -74,6 +74,15 @@ const TIME_RANGE_OPTIONS = [
   { value: '30days', label: '近30天' },
   { value: 'all', label: '全部' },
 ];
+
+const OPERATION_LOG_CONFIG: Record<OperationLog['action'], { label: string; icon: typeof Gavel; color: string }> = {
+  create: { label: '创建处罚', icon: Gavel, color: 'text-primary-600 bg-primary-100' },
+  revoke: { label: '撤销处罚', icon: Undo2, color: 'text-info-600 bg-info-100' },
+  extend: { label: '延期处罚', icon: Clock, color: 'text-warning-600 bg-warning-100' },
+  appeal_approve: { label: '申诉通过', icon: CheckCircle2, color: 'text-success-600 bg-success-100' },
+  appeal_reject: { label: '申诉驳回', icon: XCircle, color: 'text-danger-600 bg-danger-100' },
+  appeal_submit: { label: '提交申诉', icon: MessageSquare, color: 'text-purple-600 bg-purple-100' },
+};
 
 type TabKey = 'punishment' | 'appeal';
 
@@ -1158,26 +1167,65 @@ export default function Punishment() {
                 </div>
               </div>
 
-              <div>
-                <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">操作记录</h5>
-                <div className="p-3 bg-primary-50 rounded-lg space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-info-500 text-white flex items-center justify-center flex-shrink-0">
-                      <UserCheck size={14} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-primary-800">
-                          处罚创建 - {currentPunishmentDetail.operator}
-                        </p>
-                        <span className="text-xs text-primary-500">
-                          {currentPunishmentDetail.createTime}
-                        </span>
-                      </div>
-                      <p className="text-xs text-primary-500 mt-0.5">
-                        创建处罚记录，执行{getPunishmentTypeLabel(currentPunishmentDetail.punishmentType)}操作
-                      </p>
-                    </div>
+              <div className="border-t border-primary-100 pt-4">
+                <h5 className="text-xs font-semibold text-primary-500 uppercase mb-3 flex items-center gap-1.5">
+                  <FileText size={12} />
+                  操作流水
+                </h5>
+                <div className="relative pl-6">
+                  <div className="absolute left-2.5 top-2 bottom-2 w-px bg-primary-200" />
+                  <div className="space-y-4">
+                    {[...currentPunishmentDetail.operationLogs]
+                      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+                      .map((log, idx) => {
+                        const config = OPERATION_LOG_CONFIG[log.action];
+                        const IconComp = config.icon;
+                        return (
+                          <div key={log.id} className="relative">
+                            <div
+                              className={cn(
+                                'absolute -left-6 w-5 h-5 rounded-full flex items-center justify-center',
+                                config.color
+                              )}
+                            >
+                              <IconComp size={12} />
+                            </div>
+                            <div className="bg-primary-50 rounded-lg p-3">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-primary-800">
+                                    {config.label}
+                                  </span>
+                                  <span className="text-xs text-primary-500">
+                                    {log.operator}
+                                    {log.operatorRole ? `（${log.operatorRole}）` : ''}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-primary-400 font-mono">
+                                  {log.time}
+                                </span>
+                              </div>
+                              {log.comment && (
+                                <p className="text-xs text-primary-600 mt-1.5 leading-relaxed">
+                                  {log.comment}
+                                </p>
+                              )}
+                              {log.extra && Object.keys(log.extra).length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {Object.entries(log.extra).map(([key, value]) => (
+                                    <span
+                                      key={key}
+                                      className="px-1.5 py-0.5 rounded bg-white border border-primary-200 text-[10px] text-primary-600"
+                                    >
+                                      {key}: {String(value)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               </div>

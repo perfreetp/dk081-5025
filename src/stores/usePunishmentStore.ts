@@ -4,7 +4,8 @@ import type {
   PunishmentType,
   AppealRecord,
   AppealStatus,
-  RiskType
+  RiskType,
+  OperationLog
 } from '../mock';
 import {
   punishmentRecords as mockPunishments,
@@ -340,20 +341,54 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
     set({ isLoading: loading });
   },
 
-  revokePunishment: (id) => {
+  revokePunishment: (id, reason) => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const logId = `LOG_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     set(state => ({
       punishmentRecords: state.punishmentRecords.map(r =>
-        r.id === id ? { ...r, status: 'revoked', appealAvailable: false } : r
+        r.id === id ? {
+          ...r,
+          status: 'revoked',
+          appealAvailable: false,
+          operationLogs: [
+            ...r.operationLogs,
+            {
+              id: logId,
+              action: 'revoke',
+              operator: '当前审核员',
+              operatorRole: '审核员',
+              time: now,
+              comment: reason
+            } as OperationLog
+          ]
+        } : r
       )
     }));
     get().applyPunishmentFilters();
   },
 
   extendPunishment: (id, days) => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const logId = `LOG_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     set(state => ({
       punishmentRecords: state.punishmentRecords.map(r =>
         r.id === id && r.effectiveDays > 0
-          ? { ...r, effectiveDays: r.effectiveDays + days }
+          ? {
+              ...r,
+              effectiveDays: r.effectiveDays + days,
+              operationLogs: [
+                ...r.operationLogs,
+                {
+                  id: logId,
+                  action: 'extend',
+                  operator: '当前审核员',
+                  operatorRole: '审核员',
+                  time: now,
+                  comment: `延期${days}天`,
+                  extra: { addDays: days }
+                } as OperationLog
+              ]
+            }
           : r
       )
     }));
@@ -363,6 +398,7 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
   reviewAppeal: (id, approved, comment) => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const newStatus: AppealStatus = approved ? 'approved' : 'rejected';
+    const logId = `LOG_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     set(state => {
       const appeal = state.appealRecords.find(a => a.id === id);
       const updatedAppeals: AppealRecord[] = state.appealRecords.map(a =>
@@ -376,12 +412,31 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
       );
 
       let updatedPunishments = state.punishmentRecords;
-      if (approved && appeal) {
-        updatedPunishments = state.punishmentRecords.map(p =>
-          p.id === appeal.punishmentId
-            ? { ...p, status: 'revoked', appealAvailable: false }
-            : p
-        );
+      if (appeal) {
+        updatedPunishments = state.punishmentRecords.map(p => {
+          if (p.id === appeal.punishmentId) {
+            const baseUpdates: Partial<PunishmentRecord> = {
+              operationLogs: [
+                ...p.operationLogs,
+                {
+                  id: logId,
+                  action: approved ? 'appeal_approve' : 'appeal_reject',
+                  operator: '当前审核员',
+                  operatorRole: '审核员',
+                  time: now,
+                  comment: comment,
+                  extra: { appealId: appeal.id }
+                } as OperationLog
+              ]
+            };
+            if (approved) {
+              baseUpdates.status = 'revoked';
+              baseUpdates.appealAvailable = false;
+            }
+            return { ...p, ...baseUpdates };
+          }
+          return p;
+        });
       }
 
       return {

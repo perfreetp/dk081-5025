@@ -55,6 +55,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  List,
+  LayoutGrid,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -772,21 +776,748 @@ function DetailDrawer({ open, product, onClose }: DetailDrawerProps) {
                   封禁商品
                 </Button>
               </Popconfirm>
-              <Button
-                size="large"
-                type="primary"
-                icon={<ThumbsUp size={15} />}
-                onClick={() => handleAction('approved')}
-                loading={submitting === 'approved'}
-                style={{ backgroundColor: '#10B981', borderColor: '#10B981' }}
+              <Popconfirm
+                title="确认通过该商品？"
+                description="通过后商品将正常上架展示"
+                onConfirm={() => handleAction('approved')}
+                okText="确认通过"
+                cancelText="取消"
+                okButtonProps={{ loading: submitting === 'approved' }}
               >
-                通过放行
-              </Button>
+                <Button
+                  size="large"
+                  type="primary"
+                  icon={<ThumbsUp size={15} />}
+                  loading={submitting === 'approved'}
+                  style={{ backgroundColor: '#10B981', borderColor: '#10B981' }}
+                >
+                  通过放行
+                </Button>
+              </Popconfirm>
             </Space>
           </div>
         </div>
       </div>
     </Drawer>
+  );
+}
+
+interface WorkbenchViewProps {
+  products: PendingProduct[];
+  currentIndex: number;
+  setCurrentIndex: (index: number) => void;
+  recentTemplates: string[];
+  setRecentTemplates: (templates: string[]) => void;
+  onBackToList: () => void;
+}
+
+function WorkbenchView({
+  products,
+  currentIndex,
+  setCurrentIndex,
+  recentTemplates,
+  setRecentTemplates,
+  onBackToList,
+}: WorkbenchViewProps) {
+  const { reviewProduct } = useReviewStore();
+  const { message } = App.useApp();
+  const [carouselIdx, setCarouselIdx] = useState(0);
+  const [templateId, setTemplateId] = useState<string>();
+  const [opinion, setOpinion] = useState('');
+  const [submitting, setSubmitting] = useState<'approved' | 'rejected' | 'banned' | null>(null);
+
+  const currentProduct = products[currentIndex];
+
+  useEffect(() => {
+    setCarouselIdx(0);
+    setTemplateId(undefined);
+    setOpinion('');
+    setSubmitting(null);
+  }, [currentProduct?.id]);
+
+  const handleTemplateChange = (id: string) => {
+    setTemplateId(id);
+    const tpl = REVIEW_TEMPLATES.find((t: { id: string; content: string }) => t.id === id);
+    if (tpl) {
+      setOpinion(tpl.content);
+    }
+  };
+
+  const addRecentTemplate = (id?: string) => {
+    if (!id) return;
+    const updated = [id, ...recentTemplates.filter((t) => t !== id)].slice(0, 5);
+    setRecentTemplates(updated);
+  };
+
+  const handleAction = async (action: 'approved' | 'rejected' | 'banned') => {
+    if (!currentProduct) return;
+    setSubmitting(action);
+    await new Promise((r) => setTimeout(r, 500));
+    reviewProduct(currentProduct.id, action, opinion);
+    addRecentTemplate(templateId);
+    setSubmitting(null);
+
+    const label = action === 'approved' ? '通过' : action === 'rejected' ? '打回' : '封禁';
+    message.success(`已${label}：${currentProduct.title.slice(0, 20)}...`);
+
+    if (currentIndex + 1 < products.length) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      message.success('所有待处理商品已完成');
+      onBackToList();
+    }
+  };
+
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  };
+
+  const handleNext = () => {
+    if (currentIndex < products.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  };
+
+  const templateOptions = useMemo(() => {
+    const options: SelectProps['options'] = [];
+
+    if (recentTemplates.length > 0) {
+      recentTemplates.forEach((tid) => {
+        const tpl = REVIEW_TEMPLATES.find((t: { id: string }) => t.id === tid);
+        if (tpl) {
+          options.push({
+            label: `[最近使用] [${tpl.level === 'warning' ? '警告' : tpl.level === 'delist' ? '下架' : tpl.level === 'restrict' ? '限流' : tpl.level === 'ban_product' ? '封禁商品' : '封禁卖家'}] ${tpl.name}`,
+            value: tpl.id,
+          });
+        }
+      });
+      options.push({ type: 'divider' } as any);
+    }
+
+    REVIEW_TEMPLATES.forEach((t: { id: string; level: string; name: string; useCount: number }) => {
+      if (!recentTemplates.includes(t.id)) {
+        options.push({
+          label: `[${t.level === 'warning' ? '警告' : t.level === 'delist' ? '下架' : t.level === 'restrict' ? '限流' : t.level === 'ban_product' ? '封禁商品' : '封禁卖家'}] ${t.name} · 已用${t.useCount}次`,
+          value: t.id,
+        });
+      }
+    });
+
+    return options;
+  }, [recentTemplates]);
+
+  if (products.length === 0) {
+    return (
+      <div className="flex-1 bg-white rounded-xl border border-primary-100 shadow-sm min-h-0 overflow-hidden flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-4xl mb-3">🎉</div>
+          <div className="text-sm font-semibold text-primary-700 mb-1">太棒了！</div>
+          <div className="text-xs text-primary-400 mb-4">当前没有待处理的商品</div>
+          <Button type="primary" onClick={onBackToList}>
+            返回列表
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentProduct) {
+    return (
+      <div className="flex-1 bg-white rounded-xl border border-primary-100 shadow-sm min-h-0 overflow-hidden flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-xs text-primary-400 mb-4">没有更多待处理商品</div>
+          <Button type="primary" onClick={onBackToList}>
+            返回列表
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const { diff, pct, trend } = getPriceRangeChange(currentProduct);
+  const sellerLevelStars = Math.max(1, Math.ceil((currentProduct.seller.creditScore / 100) * 5));
+  const categoryMatchScore = currentProduct.riskTypes.includes('category_mismatch') ? 35 + Math.random() * 30 : 70 + Math.random() * 25;
+  const priceAnomalyScore = currentProduct.riskTypes.includes('price_anomaly') ? 60 + Math.random() * 35 : 15 + Math.random() * 30;
+  const historyViolationScore = currentProduct.seller.violationCount > 4 ? 70 + Math.random() * 25 : currentProduct.seller.violationCount > 1 ? 35 + Math.random() * 30 : 10 + Math.random() * 25;
+
+  return (
+    <div className="flex-1 bg-white rounded-xl border border-primary-100 shadow-sm min-h-0 overflow-hidden flex flex-col">
+      <div className="flex flex-1 min-h-0">
+        <div className="w-80 shrink-0 border-r border-primary-100 flex flex-col">
+          <div className="px-4 py-3 border-b border-primary-100 bg-primary-50/50 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-primary-800">待处理队列</span>
+              <Badge count={products.length} size="small" />
+            </div>
+            <span className="text-xs text-primary-400">按优先级排序</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto py-2">
+            {products.map((p, idx) => (
+              <div
+                key={p.id}
+                className={cn(
+                  'mx-2 mb-1.5 p-2 rounded-lg cursor-pointer border transition-all',
+                  idx === currentIndex
+                    ? 'bg-primary-50 border-primary-300 ring-1 ring-primary-200'
+                    : 'bg-white border-transparent hover:bg-primary-50/60 hover:border-primary-100'
+                )}
+                onClick={() => setCurrentIndex(idx)}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-md border border-primary-100 overflow-hidden shrink-0 bg-primary-50">
+                    {p.images[0] && (
+                      <img
+                        src={p.images[0]}
+                        alt={p.title}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-primary-800 truncate leading-tight">
+                      {p.title}
+                    </div>
+                    <div className="mt-0.5">
+                      <RiskLevelBadge level={p.riskLevel} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="px-3 py-2.5 border-t border-primary-100 bg-white flex items-center justify-between">
+            <Button
+              size="small"
+              icon={<ChevronLeft size={14} />}
+              disabled={currentIndex === 0}
+              onClick={handlePrev}
+            >
+              上一条
+            </Button>
+            <span className="text-xs text-primary-500 tabular-nums font-medium">
+              {currentIndex + 1} / {products.length}
+            </span>
+            <Button
+              size="small"
+              icon={<ChevronRight size={14} />}
+              disabled={currentIndex >= products.length - 1}
+              onClick={handleNext}
+            >
+              下一条
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="px-5 py-3 border-b border-primary-100 bg-primary-50/40 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-primary-800">
+                第 <span className="tabular-nums">{currentIndex + 1}</span> / {products.length} 条
+              </span>
+              <Progress
+                percent={Math.round(((currentIndex + 1) / products.length) * 100)}
+                size="small"
+                showInfo={false}
+                strokeColor="#10B981"
+                trailColor="#E5E7EB"
+                style={{ width: 200 }}
+              />
+            </div>
+            <div className="text-xs text-primary-500">
+              剩余 <span className="font-semibold text-primary-700 tabular-nums">{products.length - currentIndex - 1}</span> 条
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <div className="flex h-full">
+              <div className="w-[55%] border-r border-primary-100 px-5 py-4 overflow-y-auto">
+                <div className="space-y-4">
+                  <div>
+                    <Carousel
+                      dotPosition="bottom"
+                      beforeChange={setCarouselIdx}
+                      autoplay={false}
+                    >
+                      {currentProduct.images.map((img: string, idx: number) => (
+                        <div key={idx}>
+                          <div className="px-1">
+                            <ImageMarker
+                              src={img}
+                              alt={`${currentProduct.title} - 图${idx + 1}`}
+                              sensitiveAreas={
+                                idx === 0
+                                  ? currentProduct.sensitiveAreas.map((sa: { label: string; x: number; y: number; width: number; height: number; confidence: number }) => ({
+                                      id: `${idx}-${sa.label}-${sa.x}`,
+                                      x: sa.x,
+                                      y: sa.y,
+                                      width: sa.width,
+                                      height: sa.height,
+                                      type:
+                                        sa.label.includes('logo')
+                                          ? 'logo'
+                                          : sa.label.includes('文字') || sa.label.includes('联系方式') || sa.label.includes('二维码')
+                                          ? 'text'
+                                          : sa.label.includes('低俗') || sa.label.includes('暴露')
+                                          ? 'adult'
+                                          : sa.label.includes('违禁')
+                                          ? 'violence'
+                                          : 'default',
+                                      confidence: sa.confidence,
+                                    }))
+                                  : []
+                              }
+                              maxHeight="320px"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </Carousel>
+                    <div className="mt-2 flex items-center justify-center gap-1 text-xs text-primary-400">
+                      <span>
+                        {carouselIdx + 1} / {currentProduct.images.length}
+                      </span>
+                      {currentProduct.sensitiveAreas.length > 0 && carouselIdx === 0 && (
+                        <Tag color="error" style={{ marginLeft: 8 }}>
+                          {currentProduct.sensitiveAreas.length} 处敏感区域
+                        </Tag>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-xs font-semibold text-primary-500 mb-1.5 flex items-center gap-1">
+                        <FileText size={12} />
+                        商品标题
+                      </div>
+                      <h2 className="text-lg font-semibold text-primary-900 leading-snug">
+                        <HighlightText
+                          text={currentProduct.title}
+                          words={currentProduct.highlightWords.map((hw: { word: string }) => ({
+                            word: hw.word,
+                            level: currentProduct.riskLevel,
+                          }))}
+                        />
+                      </h2>
+                    </div>
+
+                    <div>
+                      <div className="text-xs font-semibold text-primary-500 mb-1.5 flex items-center gap-1">
+                        <BookOpen size={12} />
+                        商品描述
+                      </div>
+                      <p className="text-sm text-primary-700 leading-relaxed whitespace-pre-wrap">
+                        <HighlightText
+                          text={currentProduct.description}
+                          words={currentProduct.highlightWords.map((hw: { word: string }) => ({
+                            word: hw.word,
+                            level: currentProduct.riskLevel,
+                          }))}
+                        />
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div className="space-y-1">
+                        <div className="text-xs text-primary-400">类目</div>
+                        <div className="text-sm font-medium text-primary-800 flex items-center gap-1">
+                          <Tags size={13} className="text-primary-400" />
+                          {currentProduct.category}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-xs text-primary-400">发布时间</div>
+                        <div className="text-sm font-medium text-primary-800 flex items-center gap-1">
+                          <Clock size={13} className="text-primary-400" />
+                          {dayjs(currentProduct.publishTime).format('YYYY-MM-DD HH:mm')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Divider style={{ margin: '16px 0' }} />
+
+                  <div>
+                    <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
+                      <User size={12} />
+                      卖家信息
+                    </div>
+                    <div className="bg-primary-50/60 rounded-lg p-3 border border-primary-100">
+                      <div className="flex items-start gap-3">
+                        <div className="relative shrink-0">
+                          {currentProduct.seller.avatar ? (
+                            <Avatar src={currentProduct.seller.avatar} size={48} />
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-primary-200 flex items-center justify-center">
+                              <User size={22} className="text-primary-500" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-primary-900 truncate">{currentProduct.seller.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1 mb-1.5">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Star
+                                key={i}
+                                size={12}
+                                className={cn(
+                                  i < sellerLevelStars ? 'fill-warning-400 text-warning-400' : 'text-primary-200'
+                                )}
+                              />
+                            ))}
+                            <span className="ml-1 text-xs text-primary-500 font-medium">
+                              信用分 {currentProduct.seller.creditScore}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-primary-500">
+                            <div className="flex items-center gap-1">
+                              <Calendar size={10} />
+                              <span>{dayjs(currentProduct.seller.registerDate).format('YYYY-MM-DD')}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Phone size={10} />
+                              <span>
+                                {currentProduct.seller.phone.slice(0, 3)}****{currentProduct.seller.phone.slice(-4)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className={cn(
+                            'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold',
+                            currentProduct.seller.violationCount === 0
+                              ? 'bg-success-50 text-success-700'
+                              : currentProduct.seller.violationCount <= 2
+                              ? 'bg-info-50 text-info-700'
+                              : currentProduct.seller.violationCount <= 5
+                              ? 'bg-warning-50 text-warning-700'
+                              : 'bg-danger-50 text-danger-700'
+                          )}
+                        >
+                          <AlertOctagon size={11} />
+                          <span>违规 {currentProduct.seller.violationCount}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 px-5 py-4 overflow-y-auto bg-primary-50/30">
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
+                      <AlertTriangle size={12} />
+                      风险详情
+                    </div>
+                    <div className="space-y-2">
+                      {currentProduct.riskTypes.map((rt: RiskType) => {
+                        const opt = RISK_TYPE_OPTIONS.find((o) => o.value === rt);
+                        if (!opt) return null;
+                        const Icon = opt.icon;
+                        const severity: RiskLevel =
+                          rt === 'weapon_drug' || rt === 'copyright'
+                            ? 'high'
+                            : rt === 'prohibited_words' || rt === 'sensitive_image' || rt === 'contact_info'
+                            ? currentProduct.riskLevel
+                            : 'low';
+                        const sevStyle = getRiskLevelStyle(severity);
+                        return (
+                          <div
+                            key={rt}
+                            className="bg-white rounded-lg border border-primary-100 p-3 hover:shadow-sm transition-shadow"
+                          >
+                            <div className="flex items-start gap-2">
+                              <div
+                                className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                                style={{ backgroundColor: sevStyle.bg, color: sevStyle.color }}
+                              >
+                                <Icon size={14} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span className="text-sm font-semibold text-primary-800">{opt.label}</span>
+                                  <span
+                                    className="text-[10px] px-1.5 py-px rounded font-semibold"
+                                    style={{ backgroundColor: sevStyle.bg, color: sevStyle.color }}
+                                  >
+                                    {sevStyle.label}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-primary-500 leading-relaxed">{opt.desc}</p>
+                                <p className="text-xs text-primary-400 mt-1.5 italic">
+                                  证据：命中关键词 {currentProduct.highlightWords.length} 项，图片敏感区 {currentProduct.sensitiveAreas.length} 处
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
+                      <Lightbulb size={12} />
+                      多维风险分析
+                    </div>
+                    <div className="grid grid-cols-1 gap-2.5">
+                      <div className="bg-white rounded-lg border border-primary-100 p-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-primary-600 flex items-center gap-1">
+                            <Tags size={11} className="text-primary-400" />
+                            类目匹配度
+                          </span>
+                          <span
+                            className="text-xs font-bold tabular-nums"
+                            style={{ color: categoryMatchScore < 50 ? '#EF4444' : categoryMatchScore < 75 ? '#F59E0B' : '#10B981' }}
+                          >
+                            {categoryMatchScore.toFixed(0)}%
+                          </span>
+                        </div>
+                        <Progress
+                          percent={categoryMatchScore}
+                          size="small"
+                          showInfo={false}
+                          strokeColor={categoryMatchScore < 50 ? '#EF4444' : categoryMatchScore < 75 ? '#F59E0B' : '#10B981'}
+                          trailColor="#F3F4F6"
+                        />
+                        <p className="text-[11px] text-primary-400 mt-1.5">
+                          {categoryMatchScore < 50
+                            ? '严重错放，建议打回修改类目'
+                            : categoryMatchScore < 75
+                            ? '匹配度偏低，建议人工确认'
+                            : '类目匹配正常'}
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-lg border border-primary-100 p-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-primary-600 flex items-center gap-1">
+                            <TrendingDown size={11} className="text-primary-400" />
+                            价格异常分析
+                          </span>
+                          <span
+                            className="text-xs font-bold tabular-nums"
+                            style={{ color: priceAnomalyScore >= 60 ? '#EF4444' : priceAnomalyScore >= 35 ? '#F59E0B' : '#10B981' }}
+                          >
+                            {priceAnomalyScore.toFixed(0)}%
+                          </span>
+                        </div>
+                        <Progress
+                          percent={priceAnomalyScore}
+                          size="small"
+                          showInfo={false}
+                          strokeColor={priceAnomalyScore >= 60 ? '#EF4444' : priceAnomalyScore >= 35 ? '#F59E0B' : '#10B981'}
+                          trailColor="#F3F4F6"
+                        />
+                        <p className="text-[11px] text-primary-400 mt-1.5">
+                          {currentProduct.originalPrice
+                            ? `现价较原价${trend === 'down' ? '下跌' : trend === 'up' ? '上涨' : '持平'} ${Math.abs(pct).toFixed(1)}%`
+                            : '无原价对比，已匹配同类目均价'}
+                          {priceAnomalyScore >= 60 && ' —— 明显偏离市场价格'}
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-lg border border-primary-100 p-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-primary-600 flex items-center gap-1">
+                            <History size={11} className="text-primary-400" />
+                            历史违规关联
+                          </span>
+                          <span
+                            className="text-xs font-bold tabular-nums"
+                            style={{ color: historyViolationScore >= 60 ? '#EF4444' : historyViolationScore >= 35 ? '#F59E0B' : '#10B981' }}
+                          >
+                            {historyViolationScore.toFixed(0)}%
+                          </span>
+                        </div>
+                        <Progress
+                          percent={historyViolationScore}
+                          size="small"
+                          showInfo={false}
+                          strokeColor={historyViolationScore >= 60 ? '#EF4444' : historyViolationScore >= 35 ? '#F59E0B' : '#10B981'}
+                          trailColor="#F3F4F6"
+                        />
+                        <p className="text-[11px] text-primary-400 mt-1.5">
+                          {currentProduct.seller.violationCount === 0
+                            ? '卖家无违规记录，信誉良好'
+                            : `卖家历史违规 ${currentProduct.seller.violationCount} 次，${
+                                currentProduct.seller.violationCount > 4 ? '需从严处置' : '请结合本次情况综合判断'
+                              }`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
+                      <Lightbulb size={12} />
+                      AI 处置建议
+                    </div>
+                    <div
+                      className={cn(
+                        'rounded-lg border p-3',
+                        currentProduct.riskLevel === 'high'
+                          ? 'bg-danger-50 border-danger-200'
+                          : currentProduct.riskLevel === 'medium'
+                          ? 'bg-warning-50 border-warning-200'
+                          : 'bg-info-50 border-info-200'
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <Lightbulb
+                          size={16}
+                          className={cn(
+                            'mt-0.5 shrink-0',
+                            currentProduct.riskLevel === 'high'
+                              ? 'text-danger-500'
+                              : currentProduct.riskLevel === 'medium'
+                              ? 'text-warning-500'
+                              : 'text-info-500'
+                          )}
+                        />
+                        <div className="text-xs leading-relaxed">
+                          <p
+                            className={cn(
+                              'font-semibold mb-1',
+                              currentProduct.riskLevel === 'high'
+                                ? 'text-danger-700'
+                                : currentProduct.riskLevel === 'medium'
+                                ? 'text-warning-700'
+                                : 'text-info-700'
+                            )}
+                          >
+                            建议动作：
+                            {currentProduct.riskLevel === 'high'
+                              ? currentProduct.seller.violationCount > 3 || currentProduct.riskTypes.includes('weapon_drug')
+                                ? '封禁商品'
+                                : '打回下架'
+                              : currentProduct.riskLevel === 'medium'
+                              ? '打回修改'
+                              : '通过放行'}
+                          </p>
+                          <p className="text-primary-600">
+                            综合风险评分 {currentProduct.riskScore.toFixed(0)}，命中 {currentProduct.riskTypes.length} 类风险。
+                            {currentProduct.riskLevel === 'high'
+                              ? '涉及明确违规内容，不建议通过。'
+                              : currentProduct.riskLevel === 'medium'
+                              ? '存在疑似违规风险，建议根据卖家信誉及商品详情综合判断。'
+                              : '风险较低，无明显违规倾向。'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
+                      <FileText size={12} />
+                      审核意见
+                    </div>
+                    <div className="space-y-2.5">
+                      <Select
+                        placeholder="选择意见模板（选填）"
+                        size="small"
+                        allowClear
+                        value={templateId}
+                        onChange={handleTemplateChange}
+                        options={templateOptions}
+                      />
+                      <TextArea
+                        rows={3}
+                        placeholder="请输入审核意见（必填，将作为通知发送给卖家）"
+                        value={opinion}
+                        onChange={(e) => setOpinion(e.target.value)}
+                        maxLength={500}
+                        showCount
+                        style={{ fontSize: 13 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-primary-100 bg-white px-5 py-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-primary-400">
+                <span className="mr-3">优先级：<span className="font-semibold text-primary-600 tabular-nums">{currentProduct.priority}</span></span>
+                <span>审核次数：<span className="font-semibold text-primary-600 tabular-nums">{currentProduct.reviewStatus === 'pending' ? 0 : 1}</span></span>
+              </div>
+              <Space>
+                <Button
+                  size="large"
+                  icon={<ChevronLeft size={15} />}
+                  onClick={handlePrev}
+                  disabled={currentIndex === 0}
+                >
+                  上一条
+                </Button>
+                <Popconfirm
+                  title="确认打回该商品？"
+                  description="打回后卖家可修改后重新提交，将自动跳到下一条"
+                  onConfirm={() => handleAction('rejected')}
+                  okText="确认打回并下一条"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true, loading: submitting === 'rejected' }}
+                >
+                  <Button
+                    size="large"
+                    icon={<ThumbsDown size={15} />}
+                    loading={submitting === 'rejected'}
+                  >
+                    打回并下一条
+                  </Button>
+                </Popconfirm>
+                <Popconfirm
+                  title="确认封禁该商品？"
+                  description="封禁后商品将不可上架，请谨慎操作，将自动跳到下一条"
+                  onConfirm={() => handleAction('banned')}
+                  okText="确认封禁并下一条"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true, loading: submitting === 'banned' }}
+                >
+                  <Button
+                    size="large"
+                    danger
+                    icon={<Ban size={15} />}
+                    loading={submitting === 'banned'}
+                  >
+                    封禁并下一条
+                  </Button>
+                </Popconfirm>
+                <Popconfirm
+                  title="确认通过该商品？"
+                  description="通过后商品将正常上架展示，将自动跳到下一条"
+                  onConfirm={() => handleAction('approved')}
+                  okText="确认通过并下一条"
+                  cancelText="取消"
+                  okButtonProps={{ loading: submitting === 'approved' }}
+                >
+                  <Button
+                    size="large"
+                    type="primary"
+                    icon={<ThumbsUp size={15} />}
+                    loading={submitting === 'approved'}
+                    style={{ backgroundColor: '#10B981', borderColor: '#10B981' }}
+                  >
+                    通过并下一条
+                  </Button>
+                </Popconfirm>
+              </Space>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -821,6 +1552,10 @@ export default function Queue() {
   const [localDateRange, setLocalDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [localCreditMin, setLocalCreditMin] = useState<number | null>(null);
   const [localViolationMax, setLocalViolationMax] = useState<number | null>(null);
+
+  const [viewMode, setViewMode] = useState<'list' | 'workbench'>('list');
+  const [workbenchCurrentIndex, setWorkbenchCurrentIndex] = useState(0);
+  const [recentTemplates, setRecentTemplates] = useState<string[]>([]);
 
   useEffect(() => {
     applyFilters();
@@ -1343,6 +2078,32 @@ export default function Queue() {
         <div className="flex-1 min-w-0 flex flex-col gap-3">
           <div className="bg-white rounded-xl border border-primary-100 shadow-sm px-4 py-3 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1">
+                <Button
+                  size="small"
+                  type={viewMode === 'list' ? 'primary' : undefined}
+                  icon={<List size={14} />}
+                  onClick={() => setViewMode('list')}
+                  className={viewMode !== 'list' ? '!border-primary-200' : ''}
+                >
+                  列表视图
+                </Button>
+                <Button
+                  size="small"
+                  type={viewMode === 'workbench' ? 'primary' : undefined}
+                  icon={<LayoutGrid size={14} />}
+                  onClick={() => {
+                    setViewMode('workbench');
+                    setWorkbenchCurrentIndex(0);
+                  }}
+                  className={viewMode !== 'workbench' ? '!border-primary-200' : ''}
+                >
+                  工作台视图
+                </Button>
+              </div>
+
+              <Divider type="vertical" className="h-5" />
+
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-primary-500 whitespace-nowrap">排序方式</span>
                 <Select
@@ -1425,32 +2186,43 @@ export default function Queue() {
             </div>
           </div>
 
-          <div className="flex-1 bg-white rounded-xl border border-primary-100 shadow-sm min-h-0 overflow-hidden flex flex-col">
-            <Table<PendingProduct>
-              rowSelection={rowSelection}
-              columns={columns}
-              dataSource={pagedProducts}
-              rowKey="id"
-              size="middle"
-              scroll={{ x: 1200, y: 'calc(100vh - 420px)' }}
-              pagination={{
-                current: pagination.page,
-                pageSize: pagination.pageSize,
-                total: pagination.total,
-                showSizeChanger: false,
-                showQuickJumper: true,
-                showTotal: (total, range) => (
-                  <span className="text-xs text-primary-500">
-                    第 {range[0]}-{range[1]} 条，共 {total} 条
-                  </span>
-                ),
-                onChange: setPage,
-                size: 'small',
-                className: 'px-4',
-              }}
-              className="flex-1"
+          {viewMode === 'list' ? (
+            <div className="flex-1 bg-white rounded-xl border border-primary-100 shadow-sm min-h-0 overflow-hidden flex flex-col">
+              <Table<PendingProduct>
+                rowSelection={rowSelection}
+                columns={columns}
+                dataSource={pagedProducts}
+                rowKey="id"
+                size="middle"
+                scroll={{ x: 1200, y: 'calc(100vh - 420px)' }}
+                pagination={{
+                  current: pagination.page,
+                  pageSize: pagination.pageSize,
+                  total: pagination.total,
+                  showSizeChanger: false,
+                  showQuickJumper: true,
+                  showTotal: (total, range) => (
+                    <span className="text-xs text-primary-500">
+                      第 {range[0]}-{range[1]} 条，共 {total} 条
+                    </span>
+                  ),
+                  onChange: setPage,
+                  size: 'small',
+                  className: 'px-4',
+                }}
+                className="flex-1"
+              />
+            </div>
+          ) : (
+            <WorkbenchView
+              products={pagedProducts}
+              currentIndex={workbenchCurrentIndex}
+              setCurrentIndex={setWorkbenchCurrentIndex}
+              recentTemplates={recentTemplates}
+              setRecentTemplates={setRecentTemplates}
+              onBackToList={() => setViewMode('list')}
             />
-          </div>
+          )}
         </div>
       </div>
 
