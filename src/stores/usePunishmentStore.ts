@@ -5,7 +5,8 @@ import type {
   AppealRecord,
   AppealStatus,
   RiskType,
-  OperationLog
+  OperationLog,
+  DisposalTimelineEvent
 } from '../mock';
 import {
   punishmentRecords as mockPunishments,
@@ -59,6 +60,8 @@ interface PunishmentStore {
   appealPagination: AppealPagination;
   selectedAppealId: string | null;
 
+  appealsByPunishment: Record<string, AppealRecord[]>;
+
   isLoading: boolean;
 
   setPunishmentFilters: (partial: Partial<PunishmentFilters>) => void;
@@ -104,6 +107,8 @@ interface PunishmentStore {
     rejectedCount: number;
     approvalRate: number;
   };
+
+  getDisposalTimeline: (productId?: string, punishmentId?: string) => DisposalTimelineEvent[];
 }
 
 const defaultPunishmentFilters: PunishmentFilters = {
@@ -254,6 +259,17 @@ function sortAppeals(
   return sorted;
 }
 
+function buildAppealsByPunishment(appeals: AppealRecord[]): Record<string, AppealRecord[]> {
+  const map: Record<string, AppealRecord[]> = {};
+  for (const appeal of appeals) {
+    if (!map[appeal.punishmentId]) {
+      map[appeal.punishmentId] = [];
+    }
+    map[appeal.punishmentId].push(appeal);
+  }
+  return map;
+}
+
 export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
   punishmentRecords: [...mockPunishments],
   filteredPunishments: [],
@@ -266,6 +282,8 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
   appealFilters: { ...defaultAppealFilters },
   appealPagination: { ...defaultAppealPagination, total: mockAppeals.length },
   selectedAppealId: null,
+
+  appealsByPunishment: buildAppealsByPunishment(mockAppeals),
 
   isLoading: false,
 
@@ -441,7 +459,8 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
 
       return {
         appealRecords: updatedAppeals,
-        punishmentRecords: updatedPunishments
+        punishmentRecords: updatedPunishments,
+        appealsByPunishment: buildAppealsByPunishment(updatedAppeals)
       };
     });
     get().applyAppealFilters();
@@ -547,5 +566,77 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
       rejectedCount,
       approvalRate
     };
+  },
+
+  getDisposalTimeline: (productId, punishmentId) => {
+    const { punishmentRecords, appealRecords } = get();
+    const events: DisposalTimelineEvent[] = [];
+
+    let filteredPunishments = punishmentRecords;
+    if (punishmentId) {
+      filteredPunishments = punishmentRecords.filter(p => p.id === punishmentId);
+    } else if (productId) {
+      filteredPunishments = punishmentRecords.filter(p => p.productId === productId);
+    }
+
+    for (const punishment of filteredPunishments) {
+      for (const log of punishment.operationLogs) {
+        events.push({
+          id: `EVT_${log.id}`,
+          sourceType: 'punishment',
+          actionType: log.action,
+          productId: punishment.productId,
+          productTitle: punishment.productTitle,
+          punishmentId: punishment.id,
+          operator: log.operator,
+          operatorRole: log.operatorRole,
+          time: log.time,
+          comment: log.comment,
+          extra: log.extra
+        });
+      }
+    }
+
+    let filteredAppeals = appealRecords;
+    if (punishmentId) {
+      filteredAppeals = appealRecords.filter(a => a.punishmentId === punishmentId);
+    } else if (productId) {
+      filteredAppeals = appealRecords.filter(a => a.productId === productId);
+    }
+
+    for (const appeal of filteredAppeals) {
+      events.push({
+        id: `EVT_APPEAL_SUBMIT_${appeal.id}`,
+        sourceType: 'appeal',
+        actionType: 'appeal_submit',
+        productId: appeal.productId,
+        productTitle: appeal.productTitle,
+        punishmentId: appeal.punishmentId,
+        appealId: appeal.id,
+        operator: appeal.sellerName,
+        operatorRole: '申诉人',
+        time: appeal.appealTime,
+        comment: appeal.appealReason
+      });
+
+      if (appeal.status !== 'pending' && appeal.reviewTime) {
+        events.push({
+          id: `EVT_APPEAL_REVIEW_${appeal.id}`,
+          sourceType: 'appeal',
+          actionType: appeal.status === 'approved' ? 'appeal_approve' : 'appeal_reject',
+          productId: appeal.productId,
+          productTitle: appeal.productTitle,
+          punishmentId: appeal.punishmentId,
+          appealId: appeal.id,
+          operator: appeal.reviewer || '审核员',
+          operatorRole: '审核员',
+          time: appeal.reviewTime,
+          comment: appeal.reviewComment
+        });
+      }
+    }
+
+    events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+    return events;
   }
 }));

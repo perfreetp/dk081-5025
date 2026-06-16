@@ -19,6 +19,7 @@ import {
   App,
   Popconfirm,
   Radio,
+  Modal,
 } from 'antd';
 import type { TableProps, SelectProps } from 'antd';
 import {
@@ -94,6 +95,13 @@ const SORT_OPTIONS = [
   { label: '优先级排序', value: 'priority' as const },
   { label: '发布时间', value: 'publishTime' as const },
   { label: '风险分值', value: 'riskScore' as const },
+];
+
+const REVIEWER_OPTIONS = [
+  { value: '张审核员', avatar: 'Z' },
+  { value: '李审核员', avatar: 'L' },
+  { value: '王审核员', avatar: 'W' },
+  { value: '赵主管', avatar: 'Z' },
 ];
 
 function getRiskLevelStyle(level: RiskLevel) {
@@ -809,6 +817,9 @@ interface WorkbenchViewProps {
   recentTemplates: string[];
   setRecentTemplates: (templates: string[]) => void;
   onBackToList: () => void;
+  productAssignments: Record<string, { assignee: string; needReview: boolean; reviewStatus: 'none' | 'pending' | 'done'; assignTime?: string; assigneeAvatar?: string; }>;
+  assignProduct: (productId: string, assignee: string) => void;
+  markNeedReview: (productId: string, need: boolean) => void;
 }
 
 function WorkbenchView({
@@ -818,6 +829,9 @@ function WorkbenchView({
   recentTemplates,
   setRecentTemplates,
   onBackToList,
+  productAssignments,
+  assignProduct,
+  markNeedReview,
 }: WorkbenchViewProps) {
   const { reviewProduct } = useReviewStore();
   const { message } = App.useApp();
@@ -825,6 +839,8 @@ function WorkbenchView({
   const [templateId, setTemplateId] = useState<string>();
   const [opinion, setOpinion] = useState('');
   const [submitting, setSubmitting] = useState<'approved' | 'rejected' | 'banned' | null>(null);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [selectedAssignee, setSelectedAssignee] = useState<string | undefined>();
 
   const currentProduct = products[currentIndex];
 
@@ -878,6 +894,22 @@ function WorkbenchView({
     if (currentIndex < products.length - 1) {
       setCurrentIndex(currentIndex + 1);
     }
+  };
+
+  const handleAssignConfirm = () => {
+    if (!currentProduct || !selectedAssignee) return;
+    assignProduct(currentProduct.id, selectedAssignee);
+    message.success(`已转派给 ${selectedAssignee}`);
+    setAssignModalOpen(false);
+    setSelectedAssignee(undefined);
+  };
+
+  const handleToggleNeedReview = () => {
+    if (!currentProduct) return;
+    const assignment = productAssignments[currentProduct.id];
+    const currentNeedReview = assignment?.needReview ?? false;
+    markNeedReview(currentProduct.id, !currentNeedReview);
+    message.success(!currentNeedReview ? '已标记需主管复核' : '已取消主管复核标记');
   };
 
   const templateOptions = useMemo(() => {
@@ -1418,6 +1450,60 @@ function WorkbenchView({
 
                   <div>
                     <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
+                      <User size={12} />
+                      协作操作
+                    </div>
+                    <div className="bg-white rounded-lg border border-primary-100 p-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          size="small"
+                          icon={<User size={13} />}
+                          onClick={() => {
+                            setSelectedAssignee(undefined);
+                            setAssignModalOpen(true);
+                          }}
+                        >
+                          转派
+                        </Button>
+                        <Button
+                          size="small"
+                          type={productAssignments[currentProduct?.id || '']?.needReview ? 'primary' : 'default'}
+                          danger={productAssignments[currentProduct?.id || '']?.needReview}
+                          icon={<ShieldAlert size={13} />}
+                          onClick={handleToggleNeedReview}
+                        >
+                          {productAssignments[currentProduct?.id || '']?.needReview ? '取消需复核' : '标记需主管复核'}
+                        </Button>
+                      </div>
+                      {(productAssignments[currentProduct?.id || '']?.assignee || productAssignments[currentProduct?.id || '']?.needReview) && (
+                        <div className="flex items-center gap-3 pt-2 border-t border-primary-100">
+                          {productAssignments[currentProduct?.id || '']?.assignee && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-primary-400">负责人：</span>
+                              <Avatar size={20} className="!bg-primary-500 !text-white !text-[10px]">
+                                {productAssignments[currentProduct?.id || '']?.assigneeAvatar || productAssignments[currentProduct?.id || '']?.assignee?.charAt(0)}
+                              </Avatar>
+                              <span className="text-xs text-primary-700">{productAssignments[currentProduct?.id || '']?.assignee}</span>
+                            </div>
+                          )}
+                          {productAssignments[currentProduct?.id || '']?.needReview && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-primary-400">复核：</span>
+                              {productAssignments[currentProduct?.id || '']?.reviewStatus === 'pending' && (
+                                <Tag color="warning" style={{ margin: 0, fontSize: 11 }}>待主管复核</Tag>
+                              )}
+                              {productAssignments[currentProduct?.id || '']?.reviewStatus === 'done' && (
+                                <Tag color="success" style={{ margin: 0, fontSize: 11 }}>已复核</Tag>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-primary-500 mb-2.5 flex items-center gap-1">
                       <FileText size={12} />
                       审核意见
                     </div>
@@ -1517,6 +1603,40 @@ function WorkbenchView({
           </div>
         </div>
       </div>
+
+      <Modal
+        title="转派审核员"
+        open={assignModalOpen}
+        onOk={handleAssignConfirm}
+        onCancel={() => {
+          setAssignModalOpen(false);
+          setSelectedAssignee(undefined);
+        }}
+        okText="确认转派"
+        cancelText="取消"
+        okButtonProps={{ disabled: !selectedAssignee }}
+      >
+        <div className="py-2">
+          <div className="text-xs text-primary-500 mb-2">选择要转派的审核员：</div>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="请选择审核员"
+            value={selectedAssignee}
+            onChange={setSelectedAssignee}
+            options={REVIEWER_OPTIONS.map((opt) => ({
+              label: (
+                <div className="flex items-center gap-2">
+                  <Avatar size={24} className="!bg-primary-500 !text-white !text-xs">
+                    {opt.avatar}
+                  </Avatar>
+                  <span>{opt.value}</span>
+                </div>
+              ),
+              value: opt.value,
+            }))}
+          />
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -1538,8 +1658,12 @@ export default function Queue() {
     reviewProduct,
     batchReview,
     getPagedProducts,
+    getAllFilteredProducts,
     getStats,
     applyFilters,
+    productAssignments,
+    assignProduct,
+    markNeedReview,
   } = useReviewStore();
 
   const stats = getStats();
@@ -1746,6 +1870,46 @@ export default function Queue() {
       key: 'seller',
       width: 200,
       render: (_, record) => <SellerMiniCard seller={record.seller} />,
+    },
+    {
+      title: '负责人',
+      key: 'assignee',
+      width: 110,
+      render: (_, record) => {
+        const assignment = productAssignments[record.id];
+        if (!assignment || !assignment.assignee) {
+          return <span className="text-xs text-primary-400">-</span>;
+        }
+        return (
+          <div className="flex items-center gap-1.5">
+            <Avatar size={24} className="!bg-primary-500 !text-white !text-xs">
+              {assignment.assigneeAvatar || assignment.assignee.charAt(0)}
+            </Avatar>
+            <span className="text-sm text-primary-700">{assignment.assignee}</span>
+          </div>
+        );
+      },
+    },
+    {
+      title: '复核状态',
+      key: 'reviewStatus',
+      width: 110,
+      render: (_, record) => {
+        const assignment = productAssignments[record.id];
+        if (!assignment || !assignment.needReview) {
+          if (assignment?.reviewStatus === 'done') {
+            return <Tag color="success" style={{ margin: 0 }}>已复核</Tag>;
+          }
+          return <Tag style={{ margin: 0, color: '#6B7280', borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>不需要</Tag>;
+        }
+        if (assignment.reviewStatus === 'pending') {
+          return <Tag color="warning" style={{ margin: 0 }}>待主管复核</Tag>;
+        }
+        if (assignment.reviewStatus === 'done') {
+          return <Tag color="success" style={{ margin: 0 }}>已复核</Tag>;
+        }
+        return <Tag style={{ margin: 0, color: '#6B7280', borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>不需要</Tag>;
+      },
     },
     {
       title: '操作',
@@ -2094,7 +2258,10 @@ export default function Queue() {
                   icon={<LayoutGrid size={14} />}
                   onClick={() => {
                     setViewMode('workbench');
-                    setWorkbenchCurrentIndex(0);
+                    const allProducts = getAllFilteredProducts();
+                    if (workbenchCurrentIndex >= allProducts.length) {
+                      setWorkbenchCurrentIndex(0);
+                    }
                   }}
                   className={viewMode !== 'workbench' ? '!border-primary-200' : ''}
                 >
@@ -2215,12 +2382,15 @@ export default function Queue() {
             </div>
           ) : (
             <WorkbenchView
-              products={pagedProducts}
+              products={getAllFilteredProducts()}
               currentIndex={workbenchCurrentIndex}
               setCurrentIndex={setWorkbenchCurrentIndex}
               recentTemplates={recentTemplates}
               setRecentTemplates={setRecentTemplates}
               onBackToList={() => setViewMode('list')}
+              productAssignments={productAssignments}
+              assignProduct={assignProduct}
+              markNeedReview={markNeedReview}
             />
           )}
         </div>

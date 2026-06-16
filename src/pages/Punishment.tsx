@@ -26,13 +26,15 @@ import {
   Download,
   Package,
   AlertTriangle,
+  ArrowUpRight,
+  GitBranch,
 } from 'lucide-react';
 import { message } from 'antd';
 import { StatusTag } from '@/components/StatusTag';
 import { HighlightText } from '@/components/HighlightText';
 import { ImageMarker } from '@/components/ImageMarker';
 import { usePunishmentStore } from '@/stores/usePunishmentStore';
-import type { PunishmentType, AppealStatus, RiskType, OperationLog } from '@/mock';
+import type { PunishmentType, AppealStatus, RiskType, OperationLog, DisposalTimelineEvent, AppealRecord } from '@/mock';
 import { cn } from '@/lib/utils';
 
 const PUNISHMENT_TYPE_OPTIONS: { value: PunishmentType; label: string }[] = [
@@ -84,7 +86,22 @@ const OPERATION_LOG_CONFIG: Record<OperationLog['action'], { label: string; icon
   appeal_submit: { label: '提交申诉', icon: MessageSquare, color: 'text-purple-600 bg-purple-100' },
 };
 
+const DISPOSAL_TIMELINE_CONFIG: Record<string, { label: string; icon: typeof Gavel; color: string; sourceLabel: string }> = {
+  create: { label: '创建处罚', icon: Gavel, color: 'text-danger-600 bg-danger-100', sourceLabel: '处罚' },
+  revoke: { label: '撤销处罚', icon: Undo2, color: 'text-info-600 bg-info-100', sourceLabel: '处罚' },
+  extend: { label: '延期处罚', icon: Clock, color: 'text-warning-600 bg-warning-100', sourceLabel: '处罚' },
+  appeal_submit: { label: '提交申诉', icon: MessageSquare, color: 'text-warning-600 bg-warning-100', sourceLabel: '申诉' },
+  appeal_approve: { label: '申诉通过', icon: CheckCircle2, color: 'text-success-600 bg-success-100', sourceLabel: '申诉' },
+  appeal_reject: { label: '申诉驳回', icon: XCircle, color: 'text-danger-600 bg-danger-100', sourceLabel: '申诉' },
+  review_approve: { label: '审核通过', icon: CheckCircle2, color: 'text-info-600 bg-info-100', sourceLabel: '审核' },
+  review_reject: { label: '审核拒绝', icon: XCircle, color: 'text-primary-600 bg-primary-100', sourceLabel: '审核' },
+  review_ban: { label: '审核封禁', icon: ShieldAlert, color: 'text-danger-600 bg-danger-100', sourceLabel: '审核' },
+  assign: { label: '分配审核', icon: UserCheck, color: 'text-primary-600 bg-primary-100', sourceLabel: '审核' },
+  mark_review: { label: '标记复核', icon: Eye, color: 'text-info-600 bg-info-100', sourceLabel: '审核' },
+};
+
 type TabKey = 'punishment' | 'appeal';
+type DetailTabKey = 'basic' | 'timeline';
 
 interface PunishmentDetailModal {
   visible: boolean;
@@ -167,6 +184,7 @@ const getPunishmentStatusLabel = (status: 'active' | 'expired' | 'revoked') => {
 
 export default function Punishment() {
   const [activeTab, setActiveTab] = useState<TabKey>('punishment');
+  const [detailTab, setDetailTab] = useState<DetailTabKey>('basic');
 
   const {
     punishmentFilters,
@@ -192,6 +210,8 @@ export default function Punishment() {
     getAppealStats,
     punishmentRecords,
     appealRecords,
+    appealsByPunishment,
+    getDisposalTimeline,
   } = usePunishmentStore();
 
   const [showFilters, setShowFilters] = useState(true);
@@ -779,9 +799,10 @@ export default function Punishment() {
                       <td>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() =>
-                              setPunishmentDetailModal({ visible: true, id: record.id })
-                            }
+                            onClick={() => {
+                              setDetailTab('basic');
+                              setPunishmentDetailModal({ visible: true, id: record.id });
+                            }}
                             className="px-2 py-1 rounded text-xs text-info-600 hover:bg-info-50 transition-colors flex items-center gap-1"
                             title="查看详情"
                           >
@@ -954,45 +975,58 @@ export default function Punishment() {
                         )}
                       </td>
                       <td>
-                        {appeal.status === 'pending' ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => {
-                                setAppealReviewModal({
-                                  visible: true,
-                                  id: appeal.id,
-                                  action: 'approve',
-                                });
-                                setReviewComment('');
-                              }}
-                              className="px-2.5 py-1 rounded text-xs bg-success-500 text-white hover:bg-success-600 transition-colors flex items-center gap-1"
-                            >
-                              <CheckCircle2 size={12} />
-                              通过
-                            </button>
-                            <button
-                              onClick={() => {
-                                setAppealReviewModal({
-                                  visible: true,
-                                  id: appeal.id,
-                                  action: 'reject',
-                                });
-                                setReviewComment('');
-                              }}
-                              className="px-2.5 py-1 rounded text-xs bg-danger-500 text-white hover:bg-danger-600 transition-colors flex items-center gap-1"
-                            >
-                              <XCircle size={12} />
-                              驳回
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-primary-500">
-                            <p>审核人: {appeal.reviewer || '-'}</p>
-                            <p className="mt-0.5 line-clamp-1 text-primary-400">
-                              {appeal.reviewComment || '无审核意见'}
-                            </p>
-                          </div>
-                        )}
+                        <div className="flex flex-col gap-2">
+                          <button
+                            onClick={() => {
+                              setActiveTab('punishment');
+                              setPunishmentFilters({ keyword: appeal.punishmentId });
+                            }}
+                            className="px-2 py-1 rounded text-xs text-info-600 hover:bg-info-50 transition-colors flex items-center gap-1 self-start"
+                            title="查看对应处罚"
+                          >
+                            <ArrowUpRight size={12} />
+                            查看处罚
+                          </button>
+                          {appeal.status === 'pending' ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  setAppealReviewModal({
+                                    visible: true,
+                                    id: appeal.id,
+                                    action: 'approve',
+                                  });
+                                  setReviewComment('');
+                                }}
+                                className="px-2.5 py-1 rounded text-xs bg-success-500 text-white hover:bg-success-600 transition-colors flex items-center gap-1"
+                              >
+                                <CheckCircle2 size={12} />
+                                通过
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setAppealReviewModal({
+                                    visible: true,
+                                    id: appeal.id,
+                                    action: 'reject',
+                                  });
+                                  setReviewComment('');
+                                }}
+                                className="px-2.5 py-1 rounded text-xs bg-danger-500 text-white hover:bg-danger-600 transition-colors flex items-center gap-1"
+                              >
+                                <XCircle size={12} />
+                                驳回
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-primary-500">
+                              <p>审核人: {appeal.reviewer || '-'}</p>
+                              <p className="mt-0.5 line-clamp-1 text-primary-400">
+                                {appeal.reviewComment || '无审核意见'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1062,126 +1096,299 @@ export default function Punishment() {
                 <X size={18} />
               </button>
             </div>
+
+            <div className="px-5 pt-3 border-b border-primary-100">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setDetailTab('basic')}
+                  className={cn(
+                    'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+                    detailTab === 'basic'
+                      ? 'border-danger-500 text-danger-600'
+                      : 'border-transparent text-primary-500 hover:text-primary-700'
+                  )}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <FileText size={14} />
+                    基本信息
+                  </div>
+                </button>
+                <button
+                  onClick={() => setDetailTab('timeline')}
+                  className={cn(
+                    'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+                    detailTab === 'timeline'
+                      ? 'border-danger-500 text-danger-600'
+                      : 'border-transparent text-primary-500 hover:text-primary-700'
+                  )}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <GitBranch size={14} />
+                    处置链路
+                  </div>
+                </button>
+              </div>
+            </div>
+
             <div className="p-5 overflow-y-auto flex-1 space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">商品信息</h5>
-                  <div className="p-3 bg-primary-50 rounded-lg space-y-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 bg-white border border-primary-200">
-                        <img
-                          src={currentPunishmentDetail.productImage}
-                          alt={currentPunishmentDetail.productTitle}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-primary-800 line-clamp-2">
-                          {currentPunishmentDetail.productTitle}
-                        </p>
+              {detailTab === 'basic' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">商品信息</h5>
+                      <div className="p-3 bg-primary-50 rounded-lg space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 bg-white border border-primary-200">
+                            <img
+                              src={currentPunishmentDetail.productImage}
+                              alt={currentPunishmentDetail.productTitle}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-primary-800 line-clamp-2">
+                              {currentPunishmentDetail.productTitle}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="pt-2 border-t border-primary-100 space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-primary-500">商品ID</span>
+                            <span className="text-primary-700 font-mono">
+                              {currentPunishmentDetail.productId}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-primary-500">处罚ID</span>
+                            <span className="text-primary-700 font-mono">
+                              {currentPunishmentDetail.id}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div className="pt-2 border-t border-primary-100 space-y-1 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-primary-500">商品ID</span>
-                        <span className="text-primary-700 font-mono">
-                          {currentPunishmentDetail.productId}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-primary-500">处罚ID</span>
-                        <span className="text-primary-700 font-mono">
-                          {currentPunishmentDetail.id}
-                        </span>
+                    <div>
+                      <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">卖家信息</h5>
+                      <div className="p-3 bg-primary-50 rounded-lg space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-full bg-white border border-primary-200 flex items-center justify-center">
+                            <User size={20} className="text-primary-500" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-primary-800">
+                              {currentPunishmentDetail.sellerName}
+                            </p>
+                            <p className="text-xs text-primary-500 font-mono">
+                              {currentPunishmentDetail.sellerId}
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                <div>
-                  <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">卖家信息</h5>
-                  <div className="p-3 bg-primary-50 rounded-lg space-y-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-white border border-primary-200 flex items-center justify-center">
-                        <User size={20} className="text-primary-500" />
+
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg bg-danger-50 border border-danger-100">
+                      <p className="text-xs text-danger-600 mb-1">处置等级</p>
+                      <p className="text-sm font-semibold text-danger-700">
+                        {getPunishmentTypeLabel(currentPunishmentDetail.punishmentType)}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-primary-50 border border-primary-100">
+                      <p className="text-xs text-primary-600 mb-1">状态</p>
+                      <p className="text-sm font-semibold text-primary-700">
+                        {getPunishmentStatusLabel(currentPunishmentDetail.status)}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-info-50 border border-info-100">
+                      <p className="text-xs text-info-600 mb-1">有效时长</p>
+                      <p className="text-sm font-semibold text-info-700">
+                        {currentPunishmentDetail.effectiveDays === -1
+                          ? '永久'
+                          : `${currentPunishmentDetail.effectiveDays} 天`}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-warning-50 border border-warning-100">
+                      <p className="text-xs text-warning-600 mb-1">可申诉</p>
+                      <p className="text-sm font-semibold text-warning-700">
+                        {currentPunishmentDetail.appealAvailable ? '是' : '否'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">处罚原因</h5>
+                    <div className="p-3 bg-danger-50/50 rounded-lg border border-danger-100">
+                      <p className="text-sm text-primary-700 leading-relaxed">
+                        {currentPunishmentDetail.punishmentReason}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">命中风险类型</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {currentPunishmentDetail.riskTypes.map((rt) => (
+                        <span key={rt} className="risk-tag risk-tag-danger">
+                          <Hash size={10} />
+                          {rt}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-primary-100 pt-4">
+                    <h5 className="text-xs font-semibold text-primary-500 uppercase mb-3 flex items-center gap-1.5">
+                      <MessageSquare size={12} />
+                      关联申诉
+                    </h5>
+                    {appealsByPunishment[currentPunishmentDetail.id] && appealsByPunishment[currentPunishmentDetail.id].length > 0 ? (
+                      <div className="space-y-3">
+                        {appealsByPunishment[currentPunishmentDetail.id].map((appeal: AppealRecord) => (
+                          <div
+                            key={appeal.id}
+                            className="bg-warning-50 border border-warning-100 rounded-lg p-3"
+                          >
+                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={cn(
+                                    'risk-tag',
+                                    getAppealStatusColor(appeal.status)
+                                  )}
+                                >
+                                  {getAppealStatusLabel(appeal.status)}
+                                </span>
+                                <span className="text-xs text-primary-400 font-mono">
+                                  {appeal.appealTime}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-primary-700 mt-2 leading-relaxed">
+                              {appeal.appealReason}
+                            </p>
+                            {appeal.status !== 'pending' && (
+                              <div className="mt-2 pt-2 border-t border-warning-200/60 space-y-1">
+                                {appeal.reviewer && (
+                                  <p className="text-xs text-primary-500">
+                                    审核人：<span className="text-primary-700">{appeal.reviewer}</span>
+                                  </p>
+                                )}
+                                {appeal.reviewComment && (
+                                  <p className="text-xs text-primary-500 leading-relaxed">
+                                    审核意见：<span className="text-primary-700">{appeal.reviewComment}</span>
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            <div className="mt-3">
+                              <button
+                                onClick={() => {
+                                  setPunishmentDetailModal({ visible: false, id: null });
+                                  setActiveTab('appeal');
+                                }}
+                                className="px-3 py-1.5 rounded text-xs bg-warning-500 text-white hover:bg-warning-600 transition-colors flex items-center gap-1"
+                              >
+                                <Eye size={12} />
+                                查看申诉详情
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-primary-800">
-                          {currentPunishmentDetail.sellerName}
-                        </p>
-                        <p className="text-xs text-primary-500 font-mono">
-                          {currentPunishmentDetail.sellerId}
-                        </p>
+                    ) : (
+                      <p className="text-sm text-primary-400 italic">暂无申诉记录</p>
+                    )}
+                  </div>
+
+                  <div className="border-t border-primary-100 pt-4">
+                    <h5 className="text-xs font-semibold text-primary-500 uppercase mb-3 flex items-center gap-1.5">
+                      <FileText size={12} />
+                      操作流水
+                    </h5>
+                    <div className="relative pl-6">
+                      <div className="absolute left-2.5 top-2 bottom-2 w-px bg-primary-200" />
+                      <div className="space-y-4">
+                        {[...currentPunishmentDetail.operationLogs]
+                          .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+                          .map((log) => {
+                            const config = OPERATION_LOG_CONFIG[log.action];
+                            const IconComp = config.icon;
+                            return (
+                              <div key={log.id} className="relative">
+                                <div
+                                  className={cn(
+                                    'absolute -left-6 w-5 h-5 rounded-full flex items-center justify-center',
+                                    config.color
+                                  )}
+                                >
+                                  <IconComp size={12} />
+                                </div>
+                                <div className="bg-primary-50 rounded-lg p-3">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-semibold text-primary-800">
+                                        {config.label}
+                                      </span>
+                                      <span className="text-xs text-primary-500">
+                                        {log.operator}
+                                        {log.operatorRole ? `（${log.operatorRole}）` : ''}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs text-primary-400 font-mono">
+                                      {log.time}
+                                    </span>
+                                  </div>
+                                  {log.comment && (
+                                    <p className="text-xs text-primary-600 mt-1.5 leading-relaxed">
+                                      {log.comment}
+                                    </p>
+                                  )}
+                                  {log.extra && Object.keys(log.extra).length > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                      {Object.entries(log.extra).map(([key, value]) => (
+                                        <span
+                                          key={key}
+                                          className="px-1.5 py-0.5 rounded bg-white border border-primary-200 text-[10px] text-primary-600"
+                                        >
+                                          {key}: {String(value)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-4 gap-3">
-                <div className="p-3 rounded-lg bg-danger-50 border border-danger-100">
-                  <p className="text-xs text-danger-600 mb-1">处置等级</p>
-                  <p className="text-sm font-semibold text-danger-700">
-                    {getPunishmentTypeLabel(currentPunishmentDetail.punishmentType)}
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-primary-50 border border-primary-100">
-                  <p className="text-xs text-primary-600 mb-1">状态</p>
-                  <p className="text-sm font-semibold text-primary-700">
-                    {getPunishmentStatusLabel(currentPunishmentDetail.status)}
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-info-50 border border-info-100">
-                  <p className="text-xs text-info-600 mb-1">有效时长</p>
-                  <p className="text-sm font-semibold text-info-700">
-                    {currentPunishmentDetail.effectiveDays === -1
-                      ? '永久'
-                      : `${currentPunishmentDetail.effectiveDays} 天`}
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-warning-50 border border-warning-100">
-                  <p className="text-xs text-warning-600 mb-1">可申诉</p>
-                  <p className="text-sm font-semibold text-warning-700">
-                    {currentPunishmentDetail.appealAvailable ? '是' : '否'}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">处罚原因</h5>
-                <div className="p-3 bg-danger-50/50 rounded-lg border border-danger-100">
-                  <p className="text-sm text-primary-700 leading-relaxed">
-                    {currentPunishmentDetail.punishmentReason}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <h5 className="text-xs font-semibold text-primary-500 uppercase mb-2">命中风险类型</h5>
-                <div className="flex flex-wrap gap-2">
-                  {currentPunishmentDetail.riskTypes.map((rt) => (
-                    <span key={rt} className="risk-tag risk-tag-danger">
-                      <Hash size={10} />
-                      {rt}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-primary-100 pt-4">
-                <h5 className="text-xs font-semibold text-primary-500 uppercase mb-3 flex items-center gap-1.5">
-                  <FileText size={12} />
-                  操作流水
-                </h5>
-                <div className="relative pl-6">
-                  <div className="absolute left-2.5 top-2 bottom-2 w-px bg-primary-200" />
-                  <div className="space-y-4">
-                    {[...currentPunishmentDetail.operationLogs]
-                      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-                      .map((log, idx) => {
-                        const config = OPERATION_LOG_CONFIG[log.action];
+                </>
+              ) : (
+                <div>
+                  <h5 className="text-xs font-semibold text-primary-500 uppercase mb-3 flex items-center gap-1.5">
+                    <GitBranch size={12} />
+                    处置链路时间线
+                  </h5>
+                  <div className="relative pl-6">
+                    <div className="absolute left-2.5 top-2 bottom-2 w-px bg-primary-200" />
+                    <div className="space-y-4">
+                      {getDisposalTimeline(undefined, currentPunishmentDetail.id).map((event: DisposalTimelineEvent) => {
+                        const config = DISPOSAL_TIMELINE_CONFIG[event.actionType] || {
+                          label: event.actionType,
+                          icon: FileText,
+                          color: 'text-primary-600 bg-primary-100',
+                          sourceLabel: event.sourceType,
+                        };
                         const IconComp = config.icon;
+                        const sourceColor =
+                          event.sourceType === 'review'
+                            ? 'bg-info-50 text-info-700 border-info-200'
+                            : event.sourceType === 'punishment'
+                            ? 'bg-danger-50 text-danger-700 border-danger-200'
+                            : 'bg-warning-50 text-warning-700 border-warning-200';
                         return (
-                          <div key={log.id} className="relative">
+                          <div key={event.id} className="relative">
                             <div
                               className={cn(
                                 'absolute -left-6 w-5 h-5 rounded-full flex items-center justify-center',
@@ -1193,26 +1400,29 @@ export default function Punishment() {
                             <div className="bg-primary-50 rounded-lg p-3">
                               <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div className="flex items-center gap-2">
+                                  <span className={cn('risk-tag text-[10px] py-0', sourceColor)}>
+                                    {config.sourceLabel}
+                                  </span>
                                   <span className="text-sm font-semibold text-primary-800">
                                     {config.label}
                                   </span>
                                   <span className="text-xs text-primary-500">
-                                    {log.operator}
-                                    {log.operatorRole ? `（${log.operatorRole}）` : ''}
+                                    {event.operator}
+                                    {event.operatorRole ? `（${event.operatorRole}）` : ''}
                                   </span>
                                 </div>
                                 <span className="text-xs text-primary-400 font-mono">
-                                  {log.time}
+                                  {event.time}
                                 </span>
                               </div>
-                              {log.comment && (
+                              {event.comment && (
                                 <p className="text-xs text-primary-600 mt-1.5 leading-relaxed">
-                                  {log.comment}
+                                  {event.comment}
                                 </p>
                               )}
-                              {log.extra && Object.keys(log.extra).length > 0 && (
+                              {event.extra && Object.keys(event.extra).length > 0 && (
                                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                  {Object.entries(log.extra).map(([key, value]) => (
+                                  {Object.entries(event.extra).map(([key, value]) => (
                                     <span
                                       key={key}
                                       className="px-1.5 py-0.5 rounded bg-white border border-primary-200 text-[10px] text-primary-600"
@@ -1226,9 +1436,10 @@ export default function Punishment() {
                           </div>
                         );
                       })}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
             <div className="px-5 py-4 border-t border-primary-100 flex justify-end gap-2">
               {currentPunishmentDetail.status === 'active' && (

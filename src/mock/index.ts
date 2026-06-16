@@ -100,6 +100,21 @@ export interface AppealRecord {
   reviewComment?: string;
 }
 
+export interface DisposalTimelineEvent {
+  id: string;
+  sourceType: 'review' | 'punishment' | 'appeal';
+  actionType: string;
+  productId: string;
+  productTitle?: string;
+  punishmentId?: string;
+  appealId?: string;
+  operator: string;
+  operatorRole?: string;
+  time: string;
+  comment?: string;
+  extra?: Record<string, any>;
+}
+
 export interface TrendDataPoint {
   date: string;
   totalReviews: number;
@@ -410,38 +425,46 @@ export const punishmentRecords: PunishmentRecord[] = Array.from({ length: 20 }, 
   };
 });
 
-export const appealRecords: AppealRecord[] = Array.from({ length: 8 }, (_, index) => {
-  const statusRandom = Math.random();
-  let status: AppealStatus;
-  if (statusRandom < 0.4) status = 'pending';
-  else if (statusRandom < 0.7) status = 'approved';
-  else status = 'rejected';
+export const appealRecords: AppealRecord[] = (() => {
+  const results: AppealRecord[] = [];
+  const appealablePunishments = punishmentRecords.filter(p => p.appealAvailable || p.status === 'revoked');
+  const count = Math.min(8, appealablePunishments.length);
 
-  const evidenceCount = randomInt(1, 4);
-  const appealEvidence: string[] = [];
-  for (let i = 0; i < evidenceCount; i++) {
-    appealEvidence.push(`https://picsum.photos/seed/appeal${index}${i}/800/600`);
+  for (let index = 0; index < count; index++) {
+    const punishment = appealablePunishments[index % appealablePunishments.length];
+    const statusRandom = Math.random();
+    let status: AppealStatus;
+    if (statusRandom < 0.4) status = 'pending';
+    else if (statusRandom < 0.7) status = 'approved';
+    else status = 'rejected';
+
+    const evidenceCount = randomInt(1, 4);
+    const appealEvidence: string[] = [];
+    for (let i = 0; i < evidenceCount; i++) {
+      appealEvidence.push(`https://picsum.photos/seed/appeal${index}${i}/800/600`);
+    }
+
+    results.push({
+      id: generateId('APL'),
+      punishmentId: punishment.id,
+      productId: punishment.productId,
+      productTitle: punishment.productTitle,
+      productImage: punishment.productImage,
+      sellerId: punishment.sellerId,
+      sellerName: punishment.sellerName,
+      sellerContact: generatePhone(),
+      appealReason: appealReasons[index % appealReasons.length],
+      appealEvidence,
+      appealTime: generateDate(randomInt(0, 10)),
+      status,
+      reviewer: status !== 'pending' ? randomPick(operatorNames) : undefined,
+      reviewTime: status !== 'pending' ? generateDate(randomInt(0, 2)) : undefined,
+      reviewComment: status === 'approved' ? '申诉成立，已撤销处罚，恢复商品及卖家权益' :
+                     status === 'rejected' ? '申诉证据不足，维持原处罚决定，如有疑问可联系客服' : undefined
+    });
   }
-
-  return {
-    id: generateId('APL'),
-    punishmentId: generateId('PUN'),
-    productId: generateId('PDT'),
-    productTitle: productTitles[(index + 3) % productTitles.length],
-    productImage: `https://picsum.photos/seed/appealProd${index}/200/200`,
-    sellerId: generateId('USR'),
-    sellerName: sellerNames[(index + 2) % sellerNames.length],
-    sellerContact: generatePhone(),
-    appealReason: appealReasons[index % appealReasons.length],
-    appealEvidence,
-    appealTime: generateDate(randomInt(0, 10)),
-    status,
-    reviewer: status !== 'pending' ? randomPick(operatorNames) : undefined,
-    reviewTime: status !== 'pending' ? generateDate(randomInt(0, 2)) : undefined,
-    reviewComment: status === 'approved' ? '申诉成立，已撤销处罚，恢复商品及卖家权益' :
-                   status === 'rejected' ? '申诉证据不足，维持原处罚决定，如有疑问可联系客服' : undefined
-  };
-});
+  return results;
+})();
 
 export const trendData: TrendDataPoint[] = Array.from({ length: 14 }, (_, i) => {
   const date = new Date();

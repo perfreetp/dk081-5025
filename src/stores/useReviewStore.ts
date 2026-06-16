@@ -41,6 +41,7 @@ interface ReviewStore {
   sortOrder: 'asc' | 'desc';
   reviewHistory: ReviewAction[];
   isLoading: boolean;
+  productAssignments: Record<string, { assignee: string; needReview: boolean; reviewStatus: 'none' | 'pending' | 'done'; assignTime?: string; assigneeAvatar?: string; }>;
 
   setFilters: (partial: Partial<ReviewFilters>) => void;
   resetFilters: () => void;
@@ -56,12 +57,16 @@ interface ReviewStore {
 
   applyFilters: () => void;
   getPagedProducts: () => PendingProduct[];
+  getAllFilteredProducts: () => PendingProduct[];
   getStats: () => {
     totalPending: number;
     highRiskCount: number;
     mediumRiskCount: number;
     lowRiskCount: number;
   };
+
+  assignProduct: (productId: string, assignee: string) => void;
+  markNeedReview: (productId: string, need: boolean) => void;
 }
 
 const defaultFilters: ReviewFilters = {
@@ -173,6 +178,7 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   sortOrder: 'desc',
   reviewHistory: [],
   isLoading: false,
+  productAssignments: {},
 
   setFilters: (partial) => {
     set(state => {
@@ -288,5 +294,50 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
       mediumRiskCount: pending.filter(p => p.riskLevel === 'medium').length,
       lowRiskCount: pending.filter(p => p.riskLevel === 'low').length
     };
-  }
+  },
+
+  getAllFilteredProducts: () => {
+    return get().filteredProducts;
+  },
+
+  assignProduct: (productId, assignee) => {
+    const avatarMap: Record<string, string> = {
+      '张审核员': 'Z',
+      '李审核员': 'L',
+      '王审核员': 'W',
+      '赵主管': 'Z',
+    };
+    set(state => ({
+      productAssignments: {
+        ...state.productAssignments,
+        [productId]: {
+          assignee,
+          needReview: false,
+          reviewStatus: 'none',
+          assignTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          assigneeAvatar: avatarMap[assignee] || assignee.charAt(0),
+        }
+      }
+    }));
+  },
+
+  markNeedReview: (productId, need) => {
+    set(state => {
+      const existing = state.productAssignments[productId] || {
+        assignee: '',
+        needReview: false,
+        reviewStatus: 'none',
+      };
+      return {
+        productAssignments: {
+          ...state.productAssignments,
+          [productId]: {
+            ...existing,
+            needReview: need,
+            reviewStatus: need ? 'pending' : 'none',
+          }
+        }
+      };
+    });
+  },
 }));
