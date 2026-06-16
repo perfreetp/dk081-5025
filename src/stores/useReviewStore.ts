@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 
 dayjs.extend(isBetween);
-import type { PendingProduct, RiskLevel, RiskType, ReviewStatus } from '../mock';
+import type { PendingProduct, RiskLevel, RiskType, ReviewStatus, DisposalTimelineEvent } from '../mock';
 import { pendingProducts as mockProducts } from '../mock';
 
 export interface ReviewFilters {
@@ -42,6 +42,16 @@ interface ReviewStore {
   reviewHistory: ReviewAction[];
   isLoading: boolean;
   productAssignments: Record<string, { assignee: string; needReview: boolean; reviewStatus: 'none' | 'pending' | 'done'; assignTime?: string; assigneeAvatar?: string; }>;
+  collaborationLogs: {
+    id: string;
+    productId: string;
+    actionType: 'assign' | 'mark_review' | 'unmark_review';
+    operator: string;
+    time: string;
+    assignee?: string;
+    needReview?: boolean;
+    comment?: string;
+  }[];
 
   setFilters: (partial: Partial<ReviewFilters>) => void;
   resetFilters: () => void;
@@ -67,6 +77,7 @@ interface ReviewStore {
 
   assignProduct: (productId: string, assignee: string) => void;
   markNeedReview: (productId: string, need: boolean) => void;
+  getDisposalTimeline: (productId?: string) => DisposalTimelineEvent[];
 }
 
 const defaultFilters: ReviewFilters = {
@@ -179,6 +190,7 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   reviewHistory: [],
   isLoading: false,
   productAssignments: {},
+  collaborationLogs: [],
 
   setFilters: (partial) => {
     set(state => {
@@ -307,6 +319,8 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
       '王审核员': 'W',
       '赵主管': 'Z',
     };
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const logId = `LOG_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     set(state => ({
       productAssignments: {
         ...state.productAssignments,
@@ -314,14 +328,27 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
           assignee,
           needReview: false,
           reviewStatus: 'none',
-          assignTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          assignTime: now,
           assigneeAvatar: avatarMap[assignee] || assignee.charAt(0),
         }
-      }
+      },
+      collaborationLogs: [
+        ...state.collaborationLogs,
+        {
+          id: logId,
+          productId,
+          actionType: 'assign' as const,
+          operator: '当前审核员',
+          time: now,
+          assignee,
+        }
+      ]
     }));
   },
 
   markNeedReview: (productId, need) => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const logId = `LOG_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     set(state => {
       const existing = state.productAssignments[productId] || {
         assignee: '',
@@ -336,8 +363,82 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
             needReview: need,
             reviewStatus: need ? 'pending' : 'none',
           }
-        }
+        },
+        collaborationLogs: [
+          ...state.collaborationLogs,
+          {
+            id: logId,
+            productId,
+            actionType: need ? 'mark_review' as const : 'unmark_review' as const,
+            operator: '当前审核员',
+            time: now,
+            needReview: need,
+          }
+        ]
       };
     });
   },
+
+  getDisposalTimeline: (productId) => {
+    const { reviewHistory, collaborationLogs, products } = get();
+    const events: DisposalTimelineEvent[] = [];
+
+    let filteredHistory = reviewHistory;
+    let filteredLogs = collaborationLogs;
+    if (productId) {
+      filteredHistory = reviewHistory.filter(h => h.productId === productId);
+      filteredLogs = collaborationLogs.filter(l => l.productId === productId);
+    }
+
+    for (const action of filteredHistory) {
+      const product = products.find(p => p.id === action.productId);
+      let actionType: string;
+      switch (action.action) {
+        case 'approved':
+          actionType = 'review_approve';
+          break;
+        case 'rejected':
+          actionType = 'review_reject';
+          break;
+        case 'banned':
+          actionType = 'review_ban';
+          break;
+        default:
+          actionType = `review_${action.action}`;
+      }
+      events.push({
+        id: `EVT_REVIEW_${action.productId}_${action.timestamp}`,
+        sourceType: 'review',
+        actionType,
+        productId: action.productId,
+        productTitle: product?.title,
+        operator: action.operator,
+        operatorRole: '审核员',
+        time: action.timestamp,
+        comment: action.comment
+      });
+    }
+
+    for (const log of filteredLogs) {
+      const product = products.find(p => p.id === log.productId);
+      events.push({
+        id: `EVT_COLLAB_${log.id}`,
+        sourceType: 'review',
+        actionType: log.actionType,
+        productId: log.productId,
+        productTitle: product?.title,
+        operator: log.operator,
+        operatorRole: '审核员',
+        time: log.time,
+        comment: log.comment,
+        extra: {
+          assignee: log.assignee,
+          needReview: log.needReview
+        }
+      });
+    }
+
+    events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+    return events;
+  }
 }));

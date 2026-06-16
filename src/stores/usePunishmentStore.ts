@@ -12,6 +12,7 @@ import {
   punishmentRecords as mockPunishments,
   appealRecords as mockAppeals
 } from '../mock';
+import { useReviewStore } from './useReviewStore';
 
 export interface PunishmentFilters {
   keyword: string;
@@ -635,6 +636,20 @@ export const usePunishmentStore = create<PunishmentStore>((set, get) => ({
         });
       }
     }
+
+    const reviewStore = useReviewStore.getState();
+    let reviewEvents: DisposalTimelineEvent[] = [];
+    if (punishmentId) {
+      const punishment = punishmentRecords.find(p => p.id === punishmentId);
+      if (punishment) {
+        reviewEvents = reviewStore.getDisposalTimeline(punishment.productId);
+      }
+    } else if (productId) {
+      reviewEvents = reviewStore.getDisposalTimeline(productId);
+    } else {
+      reviewEvents = reviewStore.getDisposalTimeline();
+    }
+    events.push(...reviewEvents);
 
     events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
     return events;

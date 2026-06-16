@@ -98,6 +98,7 @@ const DISPOSAL_TIMELINE_CONFIG: Record<string, { label: string; icon: typeof Gav
   review_ban: { label: '审核封禁', icon: ShieldAlert, color: 'text-danger-600 bg-danger-100', sourceLabel: '审核' },
   assign: { label: '分配审核', icon: UserCheck, color: 'text-primary-600 bg-primary-100', sourceLabel: '审核' },
   mark_review: { label: '标记复核', icon: Eye, color: 'text-info-600 bg-info-100', sourceLabel: '审核' },
+  unmark_review: { label: '取消复核', icon: Eye, color: 'text-gray-600 bg-gray-100', sourceLabel: '审核' },
 };
 
 type TabKey = 'punishment' | 'appeal';

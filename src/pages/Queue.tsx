@@ -44,8 +44,10 @@ import {
   History,
   Copy,
   FileText,
+  GitBranch,
   Info,
   User,
+  UserCheck,
   Star,
   CreditCard,
   Calendar,
@@ -60,12 +62,14 @@ import {
   LayoutGrid,
   ChevronLeft,
   ChevronRight,
+  MessageSquare,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 
 import { useReviewStore } from '@/stores/useReviewStore';
-import type { PendingProduct, RiskLevel, RiskType, ReviewStatus } from '@/mock';
+import { usePunishmentStore } from '@/stores/usePunishmentStore';
+import type { PendingProduct, RiskLevel, RiskType, ReviewStatus, DisposalTimelineEvent } from '@/mock';
 import { CATEGORIES, REVIEW_TEMPLATES, PAGE_SIZE_OPTIONS } from '@/constants';
 import { cn } from '@/lib/utils';
 import { ImageMarker } from '@/components/ImageMarker';
@@ -256,13 +260,31 @@ interface DetailDrawerProps {
   onClose: () => void;
 }
 
+type DetailTabKey = 'detail' | 'timeline';
+
+const DISPOSAL_TIMELINE_CONFIG: Record<string, { label: string; icon: typeof FileText; color: string; sourceLabel: string }> = {
+  create: { label: '创建处罚', icon: FileText, color: 'text-danger-600 bg-danger-100', sourceLabel: '处罚' },
+  revoke: { label: '撤销处罚', icon: History, color: 'text-info-600 bg-info-100', sourceLabel: '处罚' },
+  extend: { label: '延期处罚', icon: Clock, color: 'text-warning-600 bg-warning-100', sourceLabel: '处罚' },
+  appeal_submit: { label: '提交申诉', icon: MessageSquare, color: 'text-warning-600 bg-warning-100', sourceLabel: '申诉' },
+  appeal_approve: { label: '申诉通过', icon: CheckCircle2, color: 'text-success-600 bg-success-100', sourceLabel: '申诉' },
+  appeal_reject: { label: '申诉驳回', icon: XCircle, color: 'text-danger-600 bg-danger-100', sourceLabel: '申诉' },
+  review_approve: { label: '审核通过', icon: CheckCircle2, color: 'text-info-600 bg-info-100', sourceLabel: '审核' },
+  review_reject: { label: '审核打回', icon: XCircle, color: 'text-primary-600 bg-primary-100', sourceLabel: '审核' },
+  review_ban: { label: '审核封禁', icon: ShieldAlert, color: 'text-danger-600 bg-danger-100', sourceLabel: '审核' },
+  assign: { label: '分配审核', icon: UserCheck, color: 'text-primary-600 bg-primary-100', sourceLabel: '审核' },
+  mark_review: { label: '标记复核', icon: Eye, color: 'text-info-600 bg-info-100', sourceLabel: '审核' },
+};
+
 function DetailDrawer({ open, product, onClose }: DetailDrawerProps) {
   const { reviewProduct } = useReviewStore();
+  const { getDisposalTimeline } = usePunishmentStore();
   const { message } = App.useApp();
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [templateId, setTemplateId] = useState<string>();
   const [opinion, setOpinion] = useState('');
   const [submitting, setSubmitting] = useState<'approved' | 'rejected' | 'banned' | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTabKey>('detail');
 
   useEffect(() => {
     if (open) {
@@ -270,6 +292,7 @@ function DetailDrawer({ open, product, onClose }: DetailDrawerProps) {
       setTemplateId(undefined);
       setOpinion('');
       setSubmitting(null);
+      setDetailTab('detail');
     }
   }, [open, product?.id]);
 
@@ -327,9 +350,43 @@ function DetailDrawer({ open, product, onClose }: DetailDrawerProps) {
       }
     >
       <div className="flex flex-col h-[calc(100vh-140px)]">
+        <div className="px-5 pt-3 border-b border-primary-100">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setDetailTab('detail')}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+                detailTab === 'detail'
+                  ? 'border-danger-500 text-danger-600'
+                  : 'border-transparent text-primary-500 hover:text-primary-700'
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <FileText size={14} />
+                商品详情
+              </div>
+            </button>
+            <button
+              onClick={() => setDetailTab('timeline')}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+                detailTab === 'timeline'
+                  ? 'border-danger-500 text-danger-600'
+                  : 'border-transparent text-primary-500 hover:text-primary-700'
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <GitBranch size={14} />
+                处置链路
+              </div>
+            </button>
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto">
-          <div className="flex h-full">
-            <div className="w-[55%] border-r border-primary-100 px-5 py-4 overflow-y-auto">
+          {detailTab === 'detail' ? (
+            <div className="flex h-full">
+              <div className="w-[55%] border-r border-primary-100 px-5 py-4 overflow-y-auto">
               <div className="space-y-4">
                 <div>
                   <Carousel
@@ -742,6 +799,89 @@ function DetailDrawer({ open, product, onClose }: DetailDrawerProps) {
               </div>
             </div>
           </div>
+          ) : (
+            <div className="px-5 py-4 overflow-y-auto">
+              <h5 className="text-xs font-semibold text-primary-500 uppercase mb-3 flex items-center gap-1.5">
+                <GitBranch size={12} />
+                处置链路时间线
+              </h5>
+              <div className="relative pl-6">
+                <div className="absolute left-2.5 top-2 bottom-2 w-px bg-primary-200" />
+                <div className="space-y-4">
+                  {getDisposalTimeline(product.id).length > 0 ? (
+                    getDisposalTimeline(product.id).map((event: DisposalTimelineEvent) => {
+                      const config = DISPOSAL_TIMELINE_CONFIG[event.actionType] || {
+                        label: event.actionType,
+                        icon: FileText,
+                        color: 'text-primary-600 bg-primary-100',
+                        sourceLabel: event.sourceType,
+                      };
+                      const IconComp = config.icon;
+                      const sourceColor =
+                        event.sourceType === 'review'
+                          ? 'bg-info-50 text-info-700 border-info-200'
+                          : event.sourceType === 'punishment'
+                          ? 'bg-danger-50 text-danger-700 border-danger-200'
+                          : 'bg-warning-50 text-warning-700 border-warning-200';
+                      return (
+                        <div key={event.id} className="relative">
+                          <div
+                            className={cn(
+                              'absolute -left-6 w-5 h-5 rounded-full flex items-center justify-center',
+                              config.color
+                            )}
+                          >
+                            <IconComp size={12} />
+                          </div>
+                          <div className="bg-primary-50 rounded-lg p-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <span className={cn('risk-tag text-[10px] py-0', sourceColor)}>
+                                  {config.sourceLabel}
+                                </span>
+                                <span className="text-sm font-semibold text-primary-800">
+                                  {config.label}
+                                </span>
+                                <span className="text-xs text-primary-500">
+                                  {event.operator}
+                                  {event.operatorRole ? `（${event.operatorRole}）` : ''}
+                                </span>
+                              </div>
+                              <span className="text-xs text-primary-400 font-mono">
+                                {event.time}
+                              </span>
+                            </div>
+                            {event.comment && (
+                              <p className="text-xs text-primary-600 mt-1.5 leading-relaxed">
+                                {event.comment}
+                              </p>
+                            )}
+                            {event.extra && Object.keys(event.extra).length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {Object.entries(event.extra).map(([key, value]) => (
+                                  <span
+                                    key={key}
+                                    className="px-1.5 py-0.5 rounded bg-white border border-primary-200 text-[10px] text-primary-600"
+                                  >
+                                    {key}: {String(value)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center py-12 text-primary-400">
+                      <History size={32} className="mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">暂无处置链路记录</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-primary-100 bg-white px-5 py-3">
@@ -841,6 +981,7 @@ function WorkbenchView({
   const [submitting, setSubmitting] = useState<'approved' | 'rejected' | 'banned' | null>(null);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedAssignee, setSelectedAssignee] = useState<string | undefined>();
+  const [pendingNextId, setPendingNextId] = useState<string | null>(null);
 
   const currentProduct = products[currentIndex];
 
@@ -850,6 +991,26 @@ function WorkbenchView({
     setOpinion('');
     setSubmitting(null);
   }, [currentProduct?.id]);
+
+  useEffect(() => {
+    if (pendingNextId) {
+      if (products.length === 0) {
+        message.success('所有待处理商品已完成');
+        onBackToList();
+      } else {
+        const newIndex = products.findIndex(p => p.id === pendingNextId);
+        if (newIndex >= 0) {
+          setCurrentIndex(newIndex);
+        } else if (products.length > 0) {
+          setCurrentIndex(0);
+        }
+      }
+      setPendingNextId(null);
+    } else if (products.length === 0 && currentIndex >= 0) {
+      message.success('所有待处理商品已完成');
+      onBackToList();
+    }
+  }, [products, pendingNextId, setCurrentIndex, onBackToList, message, currentIndex]);
 
   const handleTemplateChange = (id: string) => {
     setTemplateId(id);
@@ -867,6 +1028,12 @@ function WorkbenchView({
 
   const handleAction = async (action: 'approved' | 'rejected' | 'banned') => {
     if (!currentProduct) return;
+
+    const nextProductId = currentIndex + 1 < products.length
+      ? products[currentIndex + 1].id
+      : null;
+    setPendingNextId(nextProductId);
+
     setSubmitting(action);
     await new Promise((r) => setTimeout(r, 500));
     reviewProduct(currentProduct.id, action, opinion);
@@ -875,13 +1042,6 @@ function WorkbenchView({
 
     const label = action === 'approved' ? '通过' : action === 'rejected' ? '打回' : '封禁';
     message.success(`已${label}：${currentProduct.title.slice(0, 20)}...`);
-
-    if (currentIndex + 1 < products.length) {
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      message.success('所有待处理商品已完成');
-      onBackToList();
-    }
   };
 
   const handlePrev = () => {
